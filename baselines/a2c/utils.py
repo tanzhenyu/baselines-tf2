@@ -20,6 +20,12 @@ def ortho_init(scale=1.0):
         return (scale * q[:shape[0], :shape[1]]).astype(np.float32)
     return _ortho_init
 
+def conv(scope, *, nf, rf, stride, activation, pad='valid', init_scale=1.0, data_format='channels_last'):
+    with tf.name_scope(scope):
+        layer = tf.keras.layers.Conv2D(filters=nf, kernel_size=rf, strides=stride, padding=pad,
+                                       data_format=data_format, kernel_initializer=ortho_init(init_scale))
+    return layer
+
 def fc(input_shape, scope, nh, *, init_scale=1.0, init_bias=0.0):
     with tf.name_scope(scope):
         layer = tf.keras.layers.Dense(units=nh, kernel_initializer=ortho_init(init_scale),

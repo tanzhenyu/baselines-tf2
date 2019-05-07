@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
 from baselines.a2c import utils
-from baselines.a2c.utils import ortho_init
+from baselines.a2c.utils import ortho_init, conv
 
 mapping = {}
 
@@ -12,19 +12,21 @@ def register(name):
     return _thunk
 
 
-def nature_cnn(unscaled_images, **conv_kwargs):
+def nature_cnn(input_shape, **conv_kwargs):
     """
     CNN from Nature paper.
     """
-    scaled_images = tf.cast(unscaled_images, tf.float32) / 255.
-    activ = tf.nn.relu
-    h = activ(conv(scaled_images, 'c1', nf=32, rf=8, stride=4, init_scale=np.sqrt(2),
-                   **conv_kwargs))
-    h2 = activ(conv(h, 'c2', nf=64, rf=4, stride=2, init_scale=np.sqrt(2), **conv_kwargs))
-    h3 = activ(conv(h2, 'c3', nf=64, rf=3, stride=1, init_scale=np.sqrt(2), **conv_kwargs))
-    h3 = conv_to_fc(h3)
-    return activ(fc(h3, 'fc1', nh=512, init_scale=np.sqrt(2)))
-
+    x_input = tf.keras.Input(shape=input_shape, dtype=tf.uint8)
+    h = x_input
+    h = tf.cast(h, tf.float32) / 255.
+    h = conv('c1', nf=32, rf=8, stride=4, activation='relu', init_scale=np.sqrt(2))(h)
+    h2 = conv('c2', nf=64, rf=4, stride=2, activation='relu', init_scale=np.sqrt(2))(h)
+    h3 = conv('c3', nf=64, rf=3, stride=1, activation='relu', init_scale=np.sqrt(2))(h2)
+    h3 = tf.keras.layers.Flatten()(h3)
+    h3 = tf.keras.layers.Dense(units=512, kernel_initializer=ortho_init(np.sqrt(2)),
+                               name='fc1', activation='relu')(h3)
+    network = tf.keras.Model(inputs=[x_input], outputs=[h3])
+    return network
 
 @register("mlp")
 def mlp(num_layers=2, num_hidden=64, activation=tf.tanh):
@@ -63,8 +65,8 @@ def mlp(num_layers=2, num_hidden=64, activation=tf.tanh):
 
 @register("cnn")
 def cnn(**conv_kwargs):
-    def network_fn(X):
-        return nature_cnn(X, **conv_kwargs)
+    def network_fn(input_shape):
+        return nature_cnn(input_shape, **conv_kwargs)
     return network_fn
 
 
