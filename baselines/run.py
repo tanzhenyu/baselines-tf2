@@ -204,7 +204,12 @@ def main(args):
 
     if args.save_path is not None and rank == 0:
         save_path = osp.expanduser(args.save_path)
-        model.save(save_path)
+        ckpt = tf.train.Checkpoint(step=model.optimizer.iterations, model=model)
+        manager = tf.train.CheckpointManager(ckpt, save_path, max_to_keep=None)
+        print('before save, all trainable weights are {}'.format(model.train_model.policy_network.trainable_weights))
+        #ckpt.save(save_path)
+        manager.save()
+        #model.save_weights(save_path, save_format='tf')
 
     if args.play:
         logger.log("Running trained model")

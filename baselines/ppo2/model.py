@@ -8,7 +8,7 @@ try:
 except ImportError:
     MPI = None
 
-class Model(object):
+class Model(tf.keras.Model):
     """
     We use this object to :
     __init__:
@@ -22,11 +22,9 @@ class Model(object):
     - Save load the model
     """
     def __init__(self, *, ac_space, policy_network, value_network=None, ent_coef, vf_coef, max_grad_norm, lr):
+        super(Model, self).__init__(name='PPO2Model')
         self.train_model = PolicyWithValue(ac_space, policy_network, False)
-        if MPI is not None:
-          self.optimizer = MpiAdamOptimizer(MPI.COMM_WORLD, learning_rate=lr, epsilon=1e-5)
-        else:
-          self.optimizer = tf.keras.optimizers.Adam(learning_rate=lr, epsilon=1e-5)
+        self.optimizer = tf.keras.optimizers.Adam(learning_rate=lr, epsilon=1e-5)
         self.ent_coef = ent_coef
         self.vf_coef = vf_coef
         self.max_grad_norm = max_grad_norm
@@ -36,7 +34,7 @@ class Model(object):
         self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac']
 
     @tf.function
-    def train(self, cliprange, obs, returns, masks, actions, values, neglogpac_old, states=None):
+    def train(self, lr, cliprange, obs, returns, masks, actions, values, neglogpac_old, states=None):
         # Here we calculate advantage A(s,a) = R + yV(s') - V(s)
         # Returns = R + yV(s')
         advs = returns - values
@@ -69,6 +67,7 @@ class Model(object):
         grads = tape.gradient(loss, var_list)
         grads, _ = tf.clip_by_global_norm(grads, self.max_grad_norm)
         grads_and_vars = list(zip(grads, var_list))
+        self.optimizer.learning_rate = lr
         self.optimizer.apply_gradients(grads_and_vars)
 
         return pg_loss, vf_loss, entropy, approxkl, clipfrac, vpred, vpredclipped

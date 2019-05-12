@@ -5,7 +5,7 @@ from baselines.common.distributions import make_pdtype
 import gym
 
 
-class PolicyWithValue(object):
+class PolicyWithValue(tf.Module):
     """
     Encapsulates fields and methods for RL policy and value function estimation with shared parameters
     """

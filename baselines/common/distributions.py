@@ -30,7 +30,7 @@ class Pd(object):
     def __getitem__(self, idx):
         return self.__class__(self.flatparam()[idx])
 
-class PdType(object):
+class PdType(tf.Module):
     """
     Parametrized family of probability distributions
     """

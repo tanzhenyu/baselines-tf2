@@ -13,6 +13,10 @@ except ImportError:
     MPI = None
 from baselines.ppo2.runner import Runner
 
+def constfn(val):
+    def f(_):
+        return val
+    return f
 
 def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=2048, ent_coef=0.0, lr=3e-4,
             vf_coef=0.5,  max_grad_norm=0.5, gamma=0.99, lam=0.95,
@@ -100,6 +104,14 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=2
 
     model = model_fn(ac_space=ac_space, policy_network=policy_network, ent_coef=ent_coef, vf_coef=vf_coef,
                      max_grad_norm=max_grad_norm, lr=lr)
+    if load_path is not None:
+        load_path = osp.expanduser(load_path)
+        ckpt = tf.train.Checkpoint(model=model)
+        manager = tf.train.CheckpointManager(ckpt, load_path, max_to_keep=None)
+        ckpt.restore(manager.latest_checkpoint)
+        print("Restoring from {}".format(manager.latest_checkpoint))
+        print('after restore, all trainable weights {}'.format(model.train_model.policy_network.trainable_weights))
+        #model.load_weights(load_path)
 
     # Instantiate the runner object
     runner = Runner(env=env, model=model, nsteps=nsteps, gamma=gamma, lam=lam)
@@ -118,6 +130,10 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=2
         assert nbatch % nminibatches == 0
         # Start timer
         tstart = time.perf_counter()
+        frac = 1.0 - (update - 1.0) / nupdates
+        # Calculate the learning rate
+        #lrnow = lr(frac)
+        lrnow = lr
         # Get minibatch
         obs, returns, masks, actions, values, neglogpacs, states, epinfos = runner.run() #pylint: disable=E0632
         if eval_env is not None:
@@ -157,7 +173,7 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=2
                     # print('slice neglogpacs {}'.format(slice_neglogpacs))
                     # print('slice advs {}'.format(slice_advs))
                     pg_loss, vf_loss, entropy, approxkl, clipfrac, vpred, vpredclipped = model.train(
-                        cliprange, *slices)
+                        lrnow, cliprange, *slices)
                     # pg_loss, vf_loss, entropy, approxkl, clipfrac, vpred, vpredclipped = model.train(
                     #     cliprange, obs=slice_obs, returns=slice_returns, masks=slice_masks, advs=slice_advs,
                     #     actions=slice_actions, values=slice_values, neglogpac_old=slice_neglogpacs)
