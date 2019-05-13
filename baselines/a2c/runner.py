@@ -1,3 +1,4 @@
+import tensorflow as tf
 import numpy as np
 from baselines.a2c.utils import discount_with_dones
 from baselines.common.runners import AbstractEnvRunner
@@ -46,7 +47,7 @@ class Runner(AbstractEnvRunner):
         # Batch of steps to batch of rollouts
         mb_obs = sf01(np.asarray(mb_obs, dtype=self.obs.dtype))
         mb_rewards = np.asarray(mb_rewards, dtype=np.float32).swapaxes(1, 0)
-        mb_actions = sf01(np.asarray(mb_actions, dtype=action.dtype))
+        mb_actions = sf01(np.asarray(mb_actions, dtype=actions.dtype))
         mb_values = np.asarray(mb_values, dtype=np.float32).swapaxes(1, 0)
         mb_dones = np.asarray(mb_dones, dtype=np.bool).swapaxes(1, 0)
         mb_masks = mb_dones[:, :-1]

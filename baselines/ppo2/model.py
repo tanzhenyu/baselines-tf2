@@ -23,7 +23,7 @@ class Model(tf.keras.Model):
     """
     def __init__(self, *, ac_space, policy_network, value_network=None, ent_coef, vf_coef, max_grad_norm, lr):
         super(Model, self).__init__(name='PPO2Model')
-        self.train_model = PolicyWithValue(ac_space, policy_network, False)
+        self.train_model = PolicyWithValue(ac_space, policy_network, value_network, estimate_q=False)
         self.optimizer = tf.keras.optimizers.Adam(learning_rate=lr, epsilon=1e-5)
         self.ent_coef = ent_coef
         self.vf_coef = vf_coef

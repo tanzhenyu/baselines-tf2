@@ -42,3 +42,45 @@ def discount_with_dones(rewards, dones, gamma):
         r = reward + gamma*r*(1.-done) # fixed off by one bug
         discounted.append(r)
     return discounted[::-1]
+
+class InverseLinearTimeDecay(tf.keras.optimizers.schedules.LearningRateSchedule):
+    def __init__(self, initial_learning_rate, nupdates, name="InverseLinearTimeDecay"):
+        super(InverseLinearTimeDecay, self).__init__()
+        self.initial_learning_rate = initial_learning_rate
+        self.nupdates = nupdates
+        self.name = name
+
+    def __call__(self, step):
+        with tf.name_scope(self.name):
+            initial_learning_rate = tf.convert_to_tensor(self.initial_learning_rate, name="initial_learning_rate")
+            dtype = initial_learning_rate.dtype
+            step_t = tf.cast(step, dtype)
+            nupdates_t = tf.convert_to_tensor(self.nupdates, dtype=dtype)
+            tf.assert_less(step_t, nupdates_t)
+            return initial_learning_rate * (1. - step_t / nupdates_t)
+
+    def get_config(self):
+        return {
+            "initial_learning_rate": self.initial_learning_rate,
+            "nupdates": self.nupdates,
+            "name": self.name
+        }
+
+class LinearTimeDecay(tf.keras.optimizers.schedules.LearningRateSchedule):
+    def __init__(self, initial_learning_rate, name="LinearTimeDecay"):
+        super(LinearTimeDecay, self).__init__()
+        self.initial_learning_rate = initial_learning_rate
+        self.name = name
+
+    def __call__(self, step):
+        with tf.name_scope(self.name):
+            initial_learning_rate = tf.convert_to_tensor(self.initial_learning_rate, name="initial_learning_rate")
+            dtype = initial_learning_rate.dtype
+            step_t = tf.cast(step, dtype)
+            return initial_learning_rate * step_t
+
+    def get_config(self):
+        return {
+            "initial_learning_rate": self.initial_learning_rate,
+            "name": self.name
+        }
