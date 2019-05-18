@@ -180,7 +180,10 @@ def learn(network, env,
                     distance = agent.adapt_param_noise()
                     epoch_adaptive_distances.append(distance)
 
-                cl, al = agent.train()
+                batch = agent.memory.sample(batch_size=batch_size)
+                obs0, obs1 = tf.constant(batch['obs0']), tf.constant(batch['obs1']),
+                actions, rewards, terminals1 = tf.constant(batch['actions']), tf.constant(batch['rewards']), tf.constant(batch['terminals1'], dtype=tf.float32)
+                cl, al = agent.train(obs0, obs1, actions, rewards, terminals1)
                 epoch_critic_losses.append(cl)
                 epoch_actor_losses.append(al)
                 agent.update_target_net()

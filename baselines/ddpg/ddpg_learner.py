@@ -155,11 +155,9 @@ class DDPG(object):
             if self.normalize_observations:
                 self.obs_rms.update(np.array([obs0[b]]))
 
-    def train(self):
+    @tf.function
+    def train(self, obs0, obs1, actions, rewards, terminals1):
         # Get a batch.
-        batch = self.memory.sample(batch_size=self.batch_size)
-        obs1, rewards, terminals1 = batch['obs1'], batch['rewards'], batch['terminals1']
-        terminals1 = terminals1.astype('float32')
         normalized_obs1 = tf.clip_by_value(normalize(obs1, self.obs_rms), self.observation_range[0], self.observation_range[1])
         Q_obs1 = denormalize(self.target_critic(normalized_obs1, self.target_actor(normalized_obs1)), self.ret_rms)
         target_Q = rewards + (1. - terminals1) * self.gamma * Q_obs1
@@ -176,31 +174,27 @@ class DDPG(object):
                 kernel.assign(kernel * old_std / new_std)
                 bias.assign((bias * old_std + old_mean - new_mean) / new_std)
 
-        
-        obs0, actions = batch['obs0'], batch['actions']
+
         normalized_obs0 = tf.clip_by_value(normalize(obs0, self.obs_rms), self.observation_range[0], self.observation_range[1])
         with tf.GradientTape() as tape:
             actor_tf = self.actor_tf = self.actor(normalized_obs0)
             normalized_critic_tf = self.critic(normalized_obs0, actions)
-            self.critic_tf = denormalize(tf.clip_by_value(normalized_critic_tf, self.return_range[0], self.return_range[1]), self.ret_rms)
+            critic_tf = denormalize(tf.clip_by_value(normalized_critic_tf, self.return_range[0], self.return_range[1]), self.ret_rms)
             normalized_critic_with_actor_tf = self.critic(normalized_obs0, actor_tf)
-            critic_with_actor_tf = self.critic_with_actor_tf = denormalize(tf.clip_by_value(normalized_critic_with_actor_tf, self.return_range[0], self.return_range[1]), self.ret_rms)
+            critic_with_actor_tf = denormalize(tf.clip_by_value(normalized_critic_with_actor_tf, self.return_range[0], self.return_range[1]), self.ret_rms)
             actor_loss = -tf.reduce_mean(critic_with_actor_tf)
-        grads = tape.gradient(actor_loss, self.actor.trainable_variables)
-        grads_and_vars = zip(grads, self.actor.trainable_variables)
-        self.actor_optimizer.apply_gradients(grads_and_vars)
+        actor_grads = tape.gradient(actor_loss, self.actor.trainable_variables)
+        actor_grads_and_vars = zip(actor_grads, self.actor.trainable_variables)
+        self.actor_optimizer.apply_gradients(actor_grads_and_vars)
 
-        
+
         with tf.GradientTape() as tape:
             normalized_critic_tf = self.critic(normalized_obs0, actions)
             normalized_critic_target_tf = tf.clip_by_value(normalize(target_Q, self.ret_rms), self.return_range[0], self.return_range[1])
             critic_loss = tf.reduce_mean(tf.square(normalized_critic_tf - normalized_critic_target_tf))
-        grads = tape.gradient(critic_loss, self.critic.trainable_variables)
-        grads_and_vars = zip(grads, self.critic.trainable_variables)
-        self.critic_optimizer.apply_gradients(grads_and_vars)
-
-        if self.param_noise:
-            self.perturbed_actor_tf = self.perturbed_actor(normalized_obs0)
+        critic_grads = tape.gradient(critic_loss, self.critic.trainable_variables)
+        critic_grads_and_vars = zip(critic_grads, self.critic.trainable_variables)
+        self.critic_optimizer.apply_gradients(critic_grads_and_vars)
 
         return critic_loss, actor_loss
 
@@ -222,6 +216,12 @@ class DDPG(object):
             self.stats_sample = self.memory.sample(batch_size=self.batch_size)
         obs0 = self.stats_sample['obs0']
         actions = self.stats_sample['actions']
+        normalized_obs0 = tf.clip_by_value(normalize(obs0, self.obs_rms), self.observation_range[0], self.observation_range[1])
+        normalized_critic_tf = self.critic(normalized_obs0, actions)
+        critic_tf = denormalize(tf.clip_by_value(normalized_critic_tf, self.return_range[0], self.return_range[1]), self.ret_rms)
+        actor_tf = self.actor(normalized_obs0)
+        normalized_critic_with_actor_tf = self.critic(normalized_obs0, actor_tf)
+        critic_with_actor_tf = denormalize(tf.clip_by_value(normalized_critic_with_actor_tf, self.return_range[0], self.return_range[1]), self.ret_rms)
 
         stats = {}
         if self.normalize_returns:
@@ -230,16 +230,17 @@ class DDPG(object):
         if self.normalize_observations:
             stats['obs_rms_mean'] = tf.reduce_mean(self.obs_rms.mean)
             stats['obs_rms_std'] = tf.reduce_mean(self.obs_rms.std)
-        stats['reference_Q_mean'] = tf.reduce_mean(self.critic_tf)
-        stats['reference_Q_std'] = reduce_std(self.critic_tf)
-        stats['reference_actor_Q_mean'] = tf.reduce_mean(self.critic_with_actor_tf)
-        stats['reference_actor_Q_std'] = reduce_std(self.critic_with_actor_tf)
-        stats['reference_action_mean'] = tf.reduce_mean(self.actor_tf)
-        stats['reference_action_std'] = reduce_std(self.actor_tf)
+        stats['reference_Q_mean'] = tf.reduce_mean(critic_tf)
+        stats['reference_Q_std'] = reduce_std(critic_tf)
+        stats['reference_actor_Q_mean'] = tf.reduce_mean(critic_with_actor_tf)
+        stats['reference_actor_Q_std'] = reduce_std(critic_with_actor_tf)
+        stats['reference_action_mean'] = tf.reduce_mean(actor_tf)
+        stats['reference_action_std'] = reduce_std(actor_tf)
 
         if self.param_noise:
-            stats['reference_perturbed_action_mean'] = tf.reduce_mean(self.perturbed_actor_tf)
-            stats['reference_perturbed_action_std'] = reduce_std(self.perturbed_actor_tf)
+            perturbed_actor_tf = self.perturbed_actor(normalized_obs0)
+            stats['reference_perturbed_action_mean'] = tf.reduce_mean(perturbed_actor_tf)
+            stats['reference_perturbed_action_std'] = reduce_std(perturbed_actor_tf)
             stats.update(self.param_noise.get_stats())
         return stats
 
@@ -256,7 +257,7 @@ class DDPG(object):
         # Perturb a separate copy of the policy to adjust the scale for the next "real" perturbation.
         batch = self.memory.sample(batch_size=self.batch_size)
         update_perturbed_actor(self.actor, self.perturbed_adaptive_actor, self.param_noise.current_stddev)
-        
+
         obs0 = batch['obs0']
         normalized_obs0 = tf.clip_by_value(normalize(obs0, self.obs_rms), self.observation_range[0], self.observation_range[1])
         actor_tf = self.actor(normalized_obs0)
