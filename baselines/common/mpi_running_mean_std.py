@@ -14,11 +14,11 @@ class RunningMeanStd(object):
             dtype=tf.float64,
             name="runningsum")
         self._sumsq = tf.Variable(
-            initial_value=np.full(shape=shape, epsilon, dtype=np.float64),
+            initial_value=np.full(shape=shape, fill_value=epsilon, dtype=np.float64),
             dtype=tf.float64,
             name="runningsumsq")
         self._count = tf.Variable(
-            initial_value=0.,
+            initial_value=epsilon,
             dtype=tf.float64,
             name="count")
         self.shape = shape
@@ -27,11 +27,15 @@ class RunningMeanStd(object):
     def update(self, x):
         x = x.astype('float64')
         n = int(np.prod(self.shape))
-        totalvec = np.zeros(n*2+1, 'float64')
         addvec = np.concatenate([x.sum(axis=0).ravel(), np.square(x).sum(axis=0).ravel(), np.array([len(x)],dtype='float64')])
         if MPI is not None:
+            totalvec = np.zeros(n*2+1, 'float64')
             MPI.COMM_WORLD.Allreduce(addvec, totalvec, op=MPI.SUM)
-        self.incfiltparams(totalvec[0:n].reshape(self.shape), totalvec[n:2*n].reshape(self.shape), totalvec[2*n])
+        else:
+            totalvec = addvec
+        self._sum.assign_add(totalvec[0:n].reshape(self.shape))
+        self._sumsq.assign_add(totalvec[n:2*n].reshape(self.shape))
+        self._count.assign_add(totalvec[2*n])
 
     @property
     def mean(self):

@@ -8,9 +8,9 @@ from baselines.ddpg.models import Actor, Critic
 from baselines.ddpg.memory import Memory
 from baselines.ddpg.noise import AdaptiveParamNoiseSpec, NormalActionNoise, OrnsteinUhlenbeckActionNoise
 from baselines.common import set_global_seeds
-import baselines.common.tf_util as U
 
 from baselines import logger
+import tensorflow as tf
 import numpy as np
 
 try:
@@ -61,8 +61,8 @@ def learn(network, env,
     assert (np.abs(env.action_space.low) == env.action_space.high).all()  # we assume symmetric actions.
 
     memory = Memory(limit=int(1e6), action_shape=env.action_space.shape, observation_shape=env.observation_space.shape)
-    critic = Critic(network=network, **network_kwargs)
-    actor = Actor(nb_actions, network=network, **network_kwargs)
+    critic = Critic(nb_actions, ob_shape=env.observation_space.shape, network=network, **network_kwargs)
+    actor = Actor(nb_actions, ob_shape=env.observation_space.shape, network=network, **network_kwargs)
 
     action_noise = None
     param_noise = None
@@ -132,7 +132,7 @@ def learn(network, env,
                 agent.reset()
             for t_rollout in range(nb_rollout_steps):
                 # Predict next action.
-                action, q, _, _ = agent.step(obs, apply_noise=True, compute_Q=True)
+                action, q, _, _ = agent.step(tf.constant(obs.reshape((1,-1))), apply_noise=True, compute_Q=True)
 
                 # Execute next action.
                 if rank == 0 and render:

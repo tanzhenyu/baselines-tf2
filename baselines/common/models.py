@@ -48,6 +48,7 @@ def mlp(num_layers=2, num_hidden=64, activation=tf.tanh):
     function that builds fully connected network with a given input tensor / placeholder
     """
     def network_fn(input_shape):
+        print('input shape is {}'.format(input_shape))
         x_input = tf.keras.Input(shape=input_shape)
         # h = tf.keras.layers.Flatten(x_input)
         h = x_input
