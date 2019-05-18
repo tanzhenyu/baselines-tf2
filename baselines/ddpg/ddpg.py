@@ -42,6 +42,7 @@ def learn(network, env,
           tau=0.01,
           eval_env=None,
           param_noise_adaption_interval=50,
+          load_path=None,
           **network_kwargs):
 
     set_global_seeds(seed)
@@ -93,6 +94,13 @@ def learn(network, env,
         reward_scale=reward_scale)
     logger.info('Using agent with the following configuration:')
     logger.info(str(agent.__dict__.items()))
+
+    if load_path is not None:
+        load_path = osp.expanduser(load_path)
+        ckpt = tf.train.Checkpoint(model=agent)
+        manager = tf.train.CheckpointManager(ckpt, load_path, max_to_keep=None)
+        ckpt.restore(manager.latest_checkpoint)
+        print("Restoring from {}".format(manager.latest_checkpoint))
 
     eval_episode_rewards_history = deque(maxlen=100)
     episode_rewards_history = deque(maxlen=100)
