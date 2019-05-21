@@ -141,6 +141,7 @@ def learn(network, env,
             for t_rollout in range(nb_rollout_steps):
                 # Predict next action.
                 action, q, _, _ = agent.step(tf.constant(obs.reshape((1,-1))), apply_noise=True, compute_Q=True)
+                action, q = action.numpy(), q.numpy()
 
                 # Execute next action.
                 if rank == 0 and render:
@@ -185,7 +186,9 @@ def learn(network, env,
             for t_train in range(nb_train_steps):
                 # Adapt param noise, if necessary.
                 if memory.nb_entries >= batch_size and t_train % param_noise_adaption_interval == 0:
-                    distance = agent.adapt_param_noise()
+                    batch = agent.memory.sample(batch_size=batch_size)
+                    obs0 = tf.constant(batch['obs0'])
+                    distance = agent.adapt_param_noise(obs0)
                     epoch_adaptive_distances.append(distance)
 
                 batch = agent.memory.sample(batch_size=batch_size)

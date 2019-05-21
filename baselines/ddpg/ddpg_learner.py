@@ -23,6 +23,7 @@ def denormalize(x, stats):
         return x
     return x * stats.std + stats.mean
 
+@tf.function(autograph=False)
 def reduce_std(x, axis=None, keepdims=False):
     return tf.sqrt(reduce_var(x, axis=axis, keepdims=keepdims))
 
@@ -31,16 +32,13 @@ def reduce_var(x, axis=None, keepdims=False):
     devs_squared = tf.square(x - m)
     return tf.reduce_mean(devs_squared, axis=axis, keepdims=keepdims)
 
+@tf.function(autograph=False)
 def update_perturbed_actor(actor, perturbed_actor, param_noise_stddev):
-    assert len(actor.variables) == len(perturbed_actor.variables)
-    assert len(actor.perturbable_vars) == len(perturbed_actor.perturbable_vars)
 
     for var, perturbed_var in zip(actor.variables, perturbed_actor.variables):
         if var in actor.perturbable_vars:
-            # logger.info('  {} <- {} + noise'.format(perturbed_var.name, var.name))
             perturbed_var.assign(var + tf.random.normal(shape=tf.shape(var), mean=0., stddev=param_noise_stddev))
         else:
-            # logger.info('  {} <- {}'.format(perturbed_var.name, var.name))
             perturbed_var.assign(var)
 
 
@@ -123,7 +121,7 @@ class DDPG(tf.Module):
             assert M.get_shape()[-1] == 1
             assert b.get_shape()[-1] == 1
 
-
+    @tf.function(autograph=False)
     def step(self, obs, apply_noise=True, compute_Q=True):
         normalized_obs = tf.clip_by_value(normalize(obs, self.obs_rms), self.observation_range[0], self.observation_range[1])
         if self.param_noise is not None and apply_noise:
@@ -139,10 +137,8 @@ class DDPG(tf.Module):
 
         if self.action_noise is not None and apply_noise:
             noise = self.action_noise()
-            assert noise.shape == action[0].shape
             action += noise
-        action = np.clip(action, self.action_range[0], self.action_range[1])
-
+        action = tf.clip_by_value(action, self.action_range[0], self.action_range[1])
 
         return action, q, None, None
 
@@ -155,7 +151,7 @@ class DDPG(tf.Module):
             if self.normalize_observations:
                 self.obs_rms.update(np.array([obs0[b]]))
 
-    @tf.function
+    @tf.function(autograph=False)
     def train(self, obs0, obs1, actions, rewards, terminals1):
         # Get a batch.
         normalized_obs1 = tf.clip_by_value(normalize(obs1, self.obs_rms), self.observation_range[0], self.observation_range[1])
@@ -177,7 +173,7 @@ class DDPG(tf.Module):
 
         normalized_obs0 = tf.clip_by_value(normalize(obs0, self.obs_rms), self.observation_range[0], self.observation_range[1])
         with tf.GradientTape() as tape:
-            actor_tf = self.actor_tf = self.actor(normalized_obs0)
+            actor_tf = self.actor(normalized_obs0)
             normalized_critic_tf = self.critic(normalized_obs0, actions)
             critic_tf = denormalize(tf.clip_by_value(normalized_critic_tf, self.return_range[0], self.return_range[1]), self.ret_rms)
             normalized_critic_with_actor_tf = self.critic(normalized_obs0, actor_tf)
@@ -202,6 +198,7 @@ class DDPG(tf.Module):
         self.target_actor.set_weights(self.actor.get_weights())
         self.target_critic.set_weights(self.critic.get_weights())
 
+    @tf.function(autograph=False)
     def update_target_net(self):
         for var, target_var in zip(self.actor.variables, self.target_actor.variables):
             target_var.assign((1. - self.tau) * target_var + self.tau * var)
@@ -245,30 +242,30 @@ class DDPG(tf.Module):
         return stats
 
 
-    def adapt_param_noise(self):
-        try:
-            from mpi4py import MPI
-        except ImportError:
-            MPI = None
+    @tf.function(autograph=False)
+    def adapt_param_noise(self, obs0):
+        # try:
+        #     from mpi4py import MPI
+        # except ImportError:
+        #     MPI = None
 
         if self.param_noise is None:
             return 0.
 
         # Perturb a separate copy of the policy to adjust the scale for the next "real" perturbation.
-        batch = self.memory.sample(batch_size=self.batch_size)
+        # batch = self.memory.sample(batch_size=self.batch_size)
         update_perturbed_actor(self.actor, self.perturbed_adaptive_actor, self.param_noise.current_stddev)
 
-        obs0 = batch['obs0']
         normalized_obs0 = tf.clip_by_value(normalize(obs0, self.obs_rms), self.observation_range[0], self.observation_range[1])
         actor_tf = self.actor(normalized_obs0)
         adaptive_actor_tf = self.perturbed_adaptive_actor(normalized_obs0)
-        distance = tf.sqrt(tf.reduce_mean(tf.square(actor_tf - adaptive_actor_tf)))
+        # distance = tf.sqrt(tf.reduce_mean(tf.square(actor_tf - adaptive_actor_tf)))
+        mean_distance = tf.sqrt(tf.reduce_mean(tf.square(actor_tf - adaptive_actor_tf)))
 
-
-        if MPI is not None:
-            mean_distance = MPI.COMM_WORLD.allreduce(distance, op=MPI.SUM) / MPI.COMM_WORLD.Get_size()
-        else:
-            mean_distance = distance
+        # if MPI is not None:
+        #     mean_distance = MPI.COMM_WORLD.allreduce(distance, op=MPI.SUM) / MPI.COMM_WORLD.Get_size()
+        # else:
+        #     mean_distance = distance
 
         self.param_noise.adapt(mean_distance)
         return mean_distance

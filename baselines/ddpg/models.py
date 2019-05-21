@@ -22,6 +22,7 @@ class Actor(Model):
                                                   activation=tf.keras.activations.tanh,
                                                   kernel_initializer=tf.random_uniform_initializer(minval=-3e-3, maxval=3e-3))
 
+    @tf.function
     def call(self, obs):
         return self.output_layer(self.network_builder(obs))
 
@@ -35,8 +36,9 @@ class Critic(Model):
                                                   kernel_initializer=tf.random_uniform_initializer(minval=-3e-3, maxval=3e-3),
                                                   name='output')
 
-    def call(self, obs, action):
-        x = tf.concat([obs, action], axis=-1)
+    @tf.function
+    def call(self, obs, actions):
+        x = tf.concat([obs, actions], axis=-1)
         x = self.network_builder(x)
         return self.output_layer(x)
 
