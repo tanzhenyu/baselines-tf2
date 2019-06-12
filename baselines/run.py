@@ -206,10 +206,8 @@ def main(args):
         save_path = osp.expanduser(args.save_path)
         ckpt = tf.train.Checkpoint(step=model.optimizer.iterations, model=model)
         manager = tf.train.CheckpointManager(ckpt, save_path, max_to_keep=None)
-        print('before save, all trainable weights are {}'.format(model.train_model.policy_network.trainable_weights))
         #ckpt.save(save_path)
         manager.save()
-        #model.save_weights(save_path, save_format='tf')
 
     if args.play:
         logger.log("Running trained model")
@@ -225,7 +223,7 @@ def main(args):
             else:
                 actions, _, _, _ = model.step(obs)
 
-            obs, rew, done, _ = env.step(actions)
+            obs, rew, done, _ = env.step(actions.numpy())
             episode_rew += rew[0] if isinstance(env, VecEnv) else rew
             env.render()
             done = done.any() if isinstance(done, np.ndarray) else done

@@ -242,7 +242,7 @@ class DDPG(tf.Module):
         return stats
 
 
-    @tf.function(autograph=False)
+    
     def adapt_param_noise(self, obs0):
         # try:
         #     from mpi4py import MPI
@@ -252,6 +252,18 @@ class DDPG(tf.Module):
         if self.param_noise is None:
             return 0.
 
+        mean_distance = self.get_mean_distance(obs0)
+
+        # if MPI is not None:
+        #     mean_distance = MPI.COMM_WORLD.allreduce(distance, op=MPI.SUM) / MPI.COMM_WORLD.Get_size()
+        # else:
+        #     mean_distance = distance
+
+        self.param_noise.adapt(mean_distance)
+        return mean_distance
+
+    @tf.function(autograph=False)
+    def get_mean_distance(self, obs0):
         # Perturb a separate copy of the policy to adjust the scale for the next "real" perturbation.
         # batch = self.memory.sample(batch_size=self.batch_size)
         update_perturbed_actor(self.actor, self.perturbed_adaptive_actor, self.param_noise.current_stddev)
@@ -261,13 +273,6 @@ class DDPG(tf.Module):
         adaptive_actor_tf = self.perturbed_adaptive_actor(normalized_obs0)
         # distance = tf.sqrt(tf.reduce_mean(tf.square(actor_tf - adaptive_actor_tf)))
         mean_distance = tf.sqrt(tf.reduce_mean(tf.square(actor_tf - adaptive_actor_tf)))
-
-        # if MPI is not None:
-        #     mean_distance = MPI.COMM_WORLD.allreduce(distance, op=MPI.SUM) / MPI.COMM_WORLD.Get_size()
-        # else:
-        #     mean_distance = distance
-
-        self.param_noise.adapt(mean_distance)
         return mean_distance
 
     def reset(self):
