@@ -148,19 +148,19 @@ class DEEPQ(tf.Module):
     @tf.function()
     def train(self, obs0, actions, rewards, obs1, dones, importance_weights):
       with tf.GradientTape() as tape:
-        dones = tf.cast(dones, obs0.dtype)
         q_t = self.q_network(obs0)
-        q_t_selected = tf.reduce_sum(q_t * tf.one_hot(actions, self.num_actions), 1)
+        q_t_selected = tf.reduce_sum(q_t * tf.one_hot(actions, self.num_actions, dtype=tf.float64), 1)
 
         q_tp1 = self.target_q_network(obs1)
 
         if self.double_q:
             q_tp1_using_online_net = self.q_network(obs1)
             q_tp1_best_using_online_net = tf.argmax(q_tp1_using_online_net, 1)
-            q_tp1_best = tf.reduce_sum(q_tp1 * tf.one_hot(q_tp1_best_using_online_net, self.num_actions), 1)
+            q_tp1_best = tf.reduce_sum(q_tp1 * tf.one_hot(q_tp1_best_using_online_net, self.num_actions, dtype=tf.float64), 1)
         else:
             q_tp1_best = tf.reduce_max(q_tp1, 1)
 
+        dones = tf.cast(dones, q_tp1_best.dtype)
         q_tp1_best_masked = (1.0 - dones) * q_tp1_best
 
         q_t_selected_target = rewards + self.gamma * q_tp1_best_masked
@@ -173,7 +173,7 @@ class DEEPQ(tf.Module):
       grads_and_vars = zip(grads, self.q_network.trainable_variables)
       self.optimizer.apply_gradients(grads_and_vars)
       # self.optimizer.minimize(weighted_error, var_list=self.q_network.trainable_variables)
-      
+
       return td_error
 
     @tf.function(autograph=False)

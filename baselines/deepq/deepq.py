@@ -179,7 +179,8 @@ def learn(env,
             kwargs['reset'] = reset
             kwargs['update_param_noise_threshold'] = update_param_noise_threshold
             kwargs['update_param_noise_scale'] = True
-        action, _, _, _ = model.step(tf.constant(obs.reshape((1,-1))), update_eps=update_eps, **kwargs)[0].numpy()
+        action, _, _, _ = model.step(tf.constant(np.expand_dims(np.array(obs), axis=0)), update_eps=update_eps, **kwargs)
+        action = action[0].numpy()
         reset = False
         new_obs, rew, done, _ = env.step(action)
         # Store transition in the replay buffer.
@@ -204,7 +205,7 @@ def learn(env,
             actions, rewards, dones = tf.constant(actions), tf.constant(rewards), tf.constant(dones)
             weights = tf.constant(weights)
             td_errors = model.train(obses_t, actions, rewards, obses_tp1, dones, weights)
-            # print('done train {}'.format(t))
+            #print('done train {}'.format(t))
             if prioritized_replay:
                 new_priorities = np.abs(td_errors) + prioritized_replay_eps
                 replay_buffer.update_priorities(batch_idxes, new_priorities)

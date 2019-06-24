@@ -62,8 +62,6 @@ class DDPG(tf.Module):
         self.observation_shape = observation_shape
         self.critic = critic
         self.actor = actor
-        self.actor_lr = actor_lr
-        self.critic_lr = critic_lr
         self.clip_norm = clip_norm
         self.enable_popart = enable_popart
         self.reward_scale = reward_scale
@@ -93,8 +91,8 @@ class DDPG(tf.Module):
         if self.param_noise is not None:
             self.setup_param_noise()
 
-        self.actor_optimizer = tf.keras.optimizers.Adam()
-        self.critic_optimizer = tf.keras.optimizers.Adam()
+        self.actor_optimizer = tf.keras.optimizers.Adam(learning_rate=actor_lr)
+        self.critic_optimizer = tf.keras.optimizers.Adam(learning_rate=critic_lr)
 
         if self.normalize_returns and self.enable_popart:
             self.setup_popart()
@@ -188,6 +186,9 @@ class DDPG(tf.Module):
             normalized_critic_tf = self.critic(normalized_obs0, actions)
             normalized_critic_target_tf = tf.clip_by_value(normalize(target_Q, self.ret_rms), self.return_range[0], self.return_range[1])
             critic_loss = tf.reduce_mean(tf.square(normalized_critic_tf - normalized_critic_target_tf))
+            if self.critic_l2_reg > 0.:
+                for layer in self.critic.network_builder.layers[1:]:
+                    critic_loss += self.critic_l2_reg * tf.reduce_sum(tf.square(layer.kernel))
         critic_grads = tape.gradient(critic_loss, self.critic.trainable_variables)
         critic_grads_and_vars = zip(critic_grads, self.critic.trainable_variables)
         self.critic_optimizer.apply_gradients(critic_grads_and_vars)

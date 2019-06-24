@@ -221,7 +221,7 @@ def main(args):
             if state is not None:
                 actions, _, state, _ = model.step(obs,S=state, M=dones)
             else:
-                actions, _, _, _ = model.step(obs)
+              actions, _, _, _ = model.step(np.expand_dims(np.array(obs), axis=0))
 
             obs, rew, done, _ = env.step(actions.numpy())
             episode_rew += rew[0] if isinstance(env, VecEnv) else rew
