@@ -80,6 +80,7 @@ class CategoricalPd(Pd):
     @property
     def mean(self):
         return tf.nn.softmax(self.logits)
+
     def neglogp(self, x):
         # return tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits, labels=x)
         # Note: we can't use sparse_softmax_cross_entropy_with_logits because
@@ -95,6 +96,7 @@ class CategoricalPd(Pd):
             x = tf.one_hot(x, self.logits.get_shape().as_list()[-1])
         else:
             # already encoded
+            print('logits is {}'.format(self.logits))
             assert x.shape.as_list() == self.logits.shape.as_list()
 
         return tf.nn.softmax_cross_entropy_with_logits(logits=self.logits, labels=x)
