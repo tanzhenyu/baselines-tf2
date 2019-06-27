@@ -178,8 +178,8 @@ def learn(*,
             old_pi_value_network = network_fn(ob_space.shape)
             oldpi = PolicyWithValue(ac_space, old_pi_policy_network, old_pi_value_network)
 
-    pi_var_list = pi_policy_network.trainable_variables + pi.pdtype.matching_fc.trainable_variables
-    old_pi_var_list = old_pi_policy_network.trainable_variables + oldpi.pdtype.matching_fc.trainable_variables
+    pi_var_list = pi_policy_network.trainable_variables + list(pi.pdtype.trainable_variables)
+    old_pi_var_list = old_pi_policy_network.trainable_variables + list(oldpi.pdtype.trainable_variables)
     vf_var_list = pi_value_network.trainable_variables + pi.value_fc.trainable_variables
     old_vf_var_list = old_pi_value_network.trainable_variables + oldpi.value_fc.trainable_variables
     vfadam = MpiAdam(vf_var_list)

@@ -68,6 +68,27 @@ class CategoricalPdType(PdType):
     def sample_dtype(self):
         return tf.int32
 
+class DiagGaussianPdType(PdType):
+    def __init__(self, latent_shape, size, init_scale=1.0, init_bias=0.0):
+        self.size = size
+        self.matching_fc = _matching_fc(latent_shape, 'pi', self.size, init_scale=init_scale, init_bias=init_bias)
+        self.logstd = tf.Variable(np.zeros((1, self.size)), name='pi/logstd', dtype=tf.float32)
+
+    def pdclass(self):
+        return DiagGaussianPd
+
+    def pdfromlatent(self, latent_vector):
+        mean = self.matching_fc(latent_vector)
+        pdparam = tf.concat([mean, mean * 0.0 + self.logstd], axis=1)
+        return self.pdfromflat(pdparam), mean
+
+    def param_shape(self):
+        return [2*self.size]
+    def sample_shape(self):
+        return [self.size]
+    def sample_dtype(self):
+        return tf.float32
+
 
 class CategoricalPd(Pd):
     def __init__(self, logits):
@@ -123,12 +144,41 @@ class CategoricalPd(Pd):
     def fromflat(cls, flat):
         return cls(flat)
 
+class DiagGaussianPd(Pd):
+    def __init__(self, flat):
+        self.flat = flat
+        mean, logstd = tf.split(axis=len(flat.shape)-1, num_or_size_splits=2, value=flat)
+        self.mean = mean
+        self.logstd = logstd
+        self.std = tf.exp(logstd)
+    def flatparam(self):
+        return self.flat
+    def mode(self):
+        return self.mean
+    def neglogp(self, x):
+        return 0.5 * tf.reduce_sum(tf.square((x - self.mean) / self.std), axis=-1) \
+               + 0.5 * np.log(2.0 * np.pi) * tf.cast(tf.shape(x)[-1], dtype=tf.float32) \
+               + tf.reduce_sum(self.logstd, axis=-1)
+    def kl(self, other):
+        assert isinstance(other, DiagGaussianPd)
+        return tf.reduce_sum(other.logstd - self.logstd + (tf.square(self.std) + tf.square(self.mean - other.mean)) / (2.0 * tf.square(other.std)) - 0.5, axis=-1)
+    def entropy(self):
+        return tf.reduce_sum(self.logstd + .5 * np.log(2.0 * np.pi * np.e), axis=-1)
+    def sample(self):
+        return self.mean + self.std * tf.random.normal(tf.shape(self.mean))
+    @classmethod
+    def fromflat(cls, flat):
+        return cls(flat)
+
 def make_pdtype(latent_shape, ac_space, init_scale=1.0):
     from gym import spaces
-    if isinstance(ac_space, spaces.Discrete):
+    if isinstance(ac_space, spaces.Box):
+        assert len(ac_space.shape) == 1
+        return DiagGaussianPdType(latent_shape, ac_space.shape[0], init_scale)
+    elif isinstance(ac_space, spaces.Discrete):
         return CategoricalPdType(latent_shape, ac_space.n, init_scale)
     else:
-        raise NotImplementedError
+        raise ValueError('No implementation for {}'.format(ac_space))
 
 def _matching_fc(tensor_shape, name, size, init_scale, init_bias):
     if tensor_shape[-1] == size:
