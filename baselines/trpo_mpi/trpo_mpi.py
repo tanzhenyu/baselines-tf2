@@ -178,8 +178,10 @@ def learn(*,
             old_pi_value_network = network_fn(ob_space.shape)
             oldpi = PolicyWithValue(ac_space, old_pi_policy_network, old_pi_value_network)
 
-    pi_var_list = pi_policy_network.trainable_variables
-    vf_var_list = pi_value_network.trainable_variables
+    pi_var_list = pi_policy_network.trainable_variables + pi.pdtype.matching_fc.trainable_variables
+    old_pi_var_list = old_pi_policy_network.trainable_variables + oldpi.pdtype.matching_fc.trainable_variables
+    vf_var_list = pi_value_network.trainable_variables + pi.value_fc.trainable_variables
+    old_vf_var_list = old_pi_value_network.trainable_variables + oldpi.value_fc.trainable_variables
     vfadam = MpiAdam(vf_var_list)
 
     get_flat = U.GetFlat(pi_var_list)
@@ -187,12 +189,16 @@ def learn(*,
     loss_names = ["optimgain", "meankl", "entloss", "surrgain", "entropy"]
     shapes = [var.get_shape().as_list() for var in pi_var_list]
 
+
     def assign_old_eq_new():
-        for pi_var, old_pi_var in zip(pi_var_list, old_pi_policy_network.trainable_variables):
+        for pi_var, old_pi_var in zip(pi_var_list, old_pi_var_list):
             old_pi_var.assign(pi_var)
-        for vf_var, old_vf_var in zip(vf_var_list, old_pi_value_network.trainable_variables):
+        for vf_var, old_vf_var in zip(vf_var_list, old_vf_var_list):
             old_vf_var.assign(vf_var)
 
+    #ob shape should be [batch_size, ob_dim], merged nenv
+    #ac shape should be [batch_size]
+    #atarg shape should be [batch_size]
     @tf.function
     def compute_lossandgrad(ob, ac, atarg):
         with tf.GradientTape() as tape:
@@ -214,9 +220,9 @@ def learn(*,
 
     @tf.function
     def compute_losses(ob, ac, atarg):
-        old_policy_latent = old_pi_policy_network(ob)
+        old_policy_latent = oldpi.policy_network(ob)
         old_pd, _ = oldpi.pdtype.pdfromlatent(old_policy_latent)
-        policy_latent = pi_policy_network(ob)
+        policy_latent = pi.policy_network(ob)
         pd, _ = pi.pdtype.pdfromlatent(policy_latent)
         kloldnew = old_pd.kl(pd)
         ent = pd.entropy()
@@ -229,6 +235,8 @@ def learn(*,
         losses = [optimgain, meankl, entbonus, surrgain, meanent]
         return losses
 
+    #ob shape should be [batch_size, ob_dim], merged nenv
+    #ret shape should be [batch_size]
     @tf.function
     def compute_vflossandgrad(ob, ret):
         with tf.GradientTape() as tape:
@@ -240,9 +248,9 @@ def learn(*,
     def compute_fvp(flat_tangent, ob, ac, atarg):
         with tf.GradientTape() as outter_tape:
             with tf.GradientTape() as inner_tape:
-                old_policy_latent = old_pi_policy_network(ob)
+                old_policy_latent = oldpi.policy_network(ob)
                 old_pd, _ = oldpi.pdtype.pdfromlatent(old_policy_latent)
-                policy_latent = pi_policy_network(ob)
+                policy_latent = pi.policy_network(ob)
                 pd, _ = pi.pdtype.pdfromlatent(policy_latent)
                 kloldnew = old_pd.kl(pd)
                 meankl = tf.reduce_mean(kloldnew)
@@ -254,8 +262,8 @@ def learn(*,
                 tangents.append(tf.reshape(flat_tangent[start:start+sz], shape))
                 start += sz
             gvp = tf.add_n([tf.reduce_sum(g*tangent) for (g, tangent) in zipsame(klgrads, tangents)])
-        hessians = outter_tape.gradient(gvp, pi_var_list)
-        fvp = U.flatgrad(hessians, pi_var_list)
+        hessians_products = outter_tape.gradient(gvp, pi_var_list)
+        fvp = U.flatgrad(hessians_products, pi_var_list)
         return fvp
 
     @contextmanager
@@ -322,10 +330,6 @@ def learn(*,
         # ob, ac, atarg, ret, td1ret = map(np.concatenate, (obs, acs, atargs, rets, td1rets))
         ob, ac, atarg, tdlamret = seg["ob"], seg["ac"], seg["adv"], seg["tdlamret"]
         ob = sf01(ob)
-        print('observation shape {}'.format(ob.shape))
-        print('action shape {}'.format(ac.shape))
-        print('advantage shape {}'.format(atarg.shape))
-        print('td shape {}'.format(tdlamret.shape))
         vpredbefore = seg["vpred"] # predicted value function before udpate
         atarg = (atarg - atarg.mean()) / atarg.std() # standardized advantage function estimate
 
@@ -334,19 +338,14 @@ def learn(*,
 
         args = ob, ac, atarg
         fvpargs = [arr[::5] for arr in args]
-        for fvparg in fvpargs:
-            print('fvp arg shape {}'.format(fvparg.shape))
         def fisher_vector_product(p):
             return allmean(compute_fvp(p, *fvpargs).numpy()) + cg_damping * p
 
         assign_old_eq_new() # set old parameter values to new parameter values
         with timed("computegrad"):
             *lossbefore, g = compute_lossandgrad(*args)
-        print('loss before {}'.format(lossbefore))
         lossbefore = allmean(np.array(lossbefore))
-        print('loss {}'.format(lossbefore))
         g = g.numpy()
-        print('gradient is {}'.format(g))
         g = allmean(g)
         if np.allclose(g, 0):
             logger.log("Got zero gradient. not updating")
@@ -393,6 +392,7 @@ def learn(*,
             for _ in range(vf_iters):
                 for (mbob, mbret) in dataset.iterbatches((seg["ob"], seg["tdlamret"]),
                 include_final_partial_batch=False, batch_size=64):
+                    mbob = sf01(mbob)
                     g = allmean(compute_vflossandgrad(mbob, mbret).numpy())
                     vfadam.update(g, vf_stepsize)
 
