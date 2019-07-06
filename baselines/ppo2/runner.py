@@ -23,7 +23,6 @@ class Runner(AbstractEnvRunner):
         mb_obs, mb_rewards, mb_actions, mb_values, mb_dones, mb_neglogpacs = [],[],[],[],[],[]
         mb_states = self.states
         epinfos = []
-        # print('original observation is {}'.format(self.obs))
         # For n in range number of steps
         for _ in range(self.nsteps):
             # Given observations, get action value and neglopacs
@@ -31,32 +30,18 @@ class Runner(AbstractEnvRunner):
             obs = tf.constant(self.obs)
             actions, values, self.states, neglogpacs = self.model.step(obs)
             mb_obs.append(self.obs.copy())
-            actions = actions.numpy()
             mb_actions.append(actions)
-            values = values.numpy()
             mb_values.append(values)
-            neglogpacs = neglogpacs.numpy()
             mb_neglogpacs.append(neglogpacs)
             mb_dones.append(self.dones)
 
             # Take actions in env and look the results
             # Infos contains a ton of useful informations
-            self.obs[:], rewards, self.dones, infos = self.env.step(actions)
+            self.obs[:], rewards, self.dones, infos = self.env.step(actions.numpy())
             for info in infos:
                 maybeepinfo = info.get('episode')
                 if maybeepinfo: epinfos.append(maybeepinfo)
             mb_rewards.append(rewards)
-            # print('\n\n\nAt step {}'.format(i))
-            # print('-------------------------------------------------')
-            # print('observation is {}'.format(self.obs))
-            # print('action is {}'.format(actions))
-            # print('reward is {}'.format(rewards))
-            # print('values is {}'.format(values))
-            # print('neglogpacs is {}'.format(neglogpacs))
-            # print('masks is {}'.format(self.dones))
-            # print('latent is {}'.format(latent))
-            # print('vf latent is {}'.format(vf_latent))
-            # print('-------------------------------------------------')
 
         #batch of steps to batch of rollouts
         mb_obs = np.asarray(mb_obs, dtype=self.obs.dtype)
@@ -66,7 +51,6 @@ class Runner(AbstractEnvRunner):
         mb_neglogpacs = np.asarray(mb_neglogpacs, dtype=np.float32)
         mb_dones = np.asarray(mb_dones, dtype=np.bool)
         last_values = self.model.value(tf.constant(self.obs))
-        # print('\nlast value is {}\n\n\n'.format(last_values))
 
         # discount/bootstrap off value fn
         mb_returns = np.zeros_like(mb_rewards)

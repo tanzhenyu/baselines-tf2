@@ -79,6 +79,10 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=2
 
     set_global_seeds(seed)
 
+    if isinstance(lr, float): lr = constfn(lr)
+    else: assert callable(lr)
+    if isinstance(cliprange, float): cliprange = constfn(cliprange)
+    else: assert callable(cliprange)
     total_timesteps = int(total_timesteps)
 
     # Get the nb of env
@@ -91,27 +95,26 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=2
     if isinstance(network, str):
         network_type = network
         policy_network_fn = get_network_builder(network_type)(**network_kwargs)
-        policy_network = policy_network_fn(ob_space.shape)
+        network = policy_network_fn(ob_space.shape)
 
     # Calculate the batch_size
     nbatch = nenvs * nsteps
     nbatch_train = nbatch // nminibatches
+    is_mpi_root = (MPI is None or MPI.COMM_WORLD.Get_rank() == 0)
 
     # Instantiate the model object (that creates act_model and train_model)
     if model_fn is None:
         from baselines.ppo2.model import Model
         model_fn = Model
 
-    model = model_fn(ac_space=ac_space, policy_network=policy_network, ent_coef=ent_coef, vf_coef=vf_coef,
-                     max_grad_norm=max_grad_norm, lr=lr)
+    model = model_fn(ac_space=ac_space, policy_network=network, ent_coef=ent_coef, vf_coef=vf_coef,
+                     max_grad_norm=max_grad_norm)
+
     if load_path is not None:
         load_path = osp.expanduser(load_path)
         ckpt = tf.train.Checkpoint(model=model)
         manager = tf.train.CheckpointManager(ckpt, load_path, max_to_keep=None)
         ckpt.restore(manager.latest_checkpoint)
-        print("Restoring from {}".format(manager.latest_checkpoint))
-        print('after restore, all trainable weights {}'.format(model.train_model.policy_network.trainable_weights))
-        #model.load_weights(load_path)
 
     # Instantiate the runner object
     runner = Runner(env=env, model=model, nsteps=nsteps, gamma=gamma, lam=lam)
@@ -132,8 +135,11 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=2
         tstart = time.perf_counter()
         frac = 1.0 - (update - 1.0) / nupdates
         # Calculate the learning rate
-        #lrnow = lr(frac)
-        lrnow = lr
+        lrnow = lr(frac)
+        cliprangenow = cliprange(frac)
+
+        if update % log_interval == 0 and is_mpi_root: logger.info('Stepping environment...')
+
         # Get minibatch
         obs, returns, masks, actions, values, neglogpacs, states, epinfos = runner.run() #pylint: disable=E0632
         if eval_env is not None:
@@ -157,42 +163,7 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=2
                     end = start + nbatch_train
                     mbinds = inds[start:end]
                     slices = (tf.constant(arr[mbinds]) for arr in (obs, returns, masks, actions, values, neglogpacs))
-                    # slice_obs, slice_returns, slice_masks, slice_actions, slice_values, slice_neglogpacs = (arr[mbinds] for arr in  (obs, returns, masks, actions, values, neglogpacs))
-                    # slice_advs = slice_returns - slice_values
-                    # slice_advs = (slice_advs - slice_advs.mean()) / (slice_advs.std() + 1e-8)
-                    # slices = (tf.constant(slice_obs), tf.constant(slice_returns), tf.constant(slice_masks),
-                    #     tf.constant(slice_advs), tf.constant(slice_actions), tf.constant(slice_values), tf.constant(slice_neglogpacs))
-                    # print('slice actions {}'.format(slice_actions.dtype))
-                    # print('-------------------------------------------')
-                    # print('inds {}'.format(inds))
-                    # print('slice obs {}'.format(slice_obs))
-                    # print('slice returns {}'.format(slice_returns))
-                    # print('slice masks {}'.format(slice_masks))
-                    # print('slice actions {}'.format(slice_actions))
-                    # print('slice values {}'.format(slice_values))
-                    # print('slice neglogpacs {}'.format(slice_neglogpacs))
-                    # print('slice advs {}'.format(slice_advs))
-                    pg_loss, vf_loss, entropy, approxkl, clipfrac, vpred, vpredclipped = model.train(
-                        lrnow, cliprange, *slices)
-                    # pg_loss, vf_loss, entropy, approxkl, clipfrac, vpred, vpredclipped = model.train(
-                    #     cliprange, obs=slice_obs, returns=slice_returns, masks=slice_masks, advs=slice_advs,
-                    #     actions=slice_actions, values=slice_values, neglogpac_old=slice_neglogpacs)
-                    # print('pg_loss {}'.format(pg_loss))
-                    # print('vf_loss {}'.format(vf_loss))
-                    # print('entropy {}'.format(entropy))
-                    # print('approxkl {}'.format(approxkl))
-                    # print('clipfrac {}'.format(clipfrac))
-                    # print('vpred {}'.format(vpred))
-                    # print('vpredclipped {}'.format(vpredclipped))
-                    # print('pg_loss1 {}'.format(pg_loss1))
-                    # print('pg_loss2 {}'.format(pg_loss2))
-                    # train_model = model.train_model
-                    # params = train_model.policy_network.trainable_weights + train_model.value_fc.trainable_weights + train_model.pdtype.matching_fc.trainable_weights
-                    # for param in params:
-                    #     print('param {} is {}'.format(param.name, param.numpy()))
-                    # print('-------------------------------------------')
-                    mblossvals.append([pg_loss.numpy(), vf_loss.numpy(), entropy.numpy(), approxkl.numpy(), clipfrac.numpy()])
-                    # mblossvals.append([output for output.numpy() in model.train(cliprange, *slices)])
+                    mblossvals.append(model.train(lrnow, cliprangenow, *slices))
         else: # recurrent version
             raise ValueError('Not Support Yet')
 
@@ -206,25 +177,25 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=2
             # Calculates if value function is a good predicator of the returns (ev > 1)
             # or if it's just worse than predicting nothing (ev =< 0)
             ev = explained_variance(values, returns)
-            logger.logkv("serial_timesteps", update*nsteps)
-            logger.logkv("nupdates", update)
-            logger.logkv("total_timesteps", update*nbatch)
+            logger.logkv("misc/serial_timesteps", update*nsteps)
+            logger.logkv("misc/nupdates", update)
+            logger.logkv("misc/total_timesteps", update*nbatch)
             logger.logkv("fps", fps)
-            logger.logkv("explained_variance", float(ev))
+            logger.logkv("misc/explained_variance", float(ev))
             logger.logkv('eprewmean', safemean([epinfo['r'] for epinfo in epinfobuf]))
             logger.logkv('eplenmean', safemean([epinfo['l'] for epinfo in epinfobuf]))
             if eval_env is not None:
                 logger.logkv('eval_eprewmean', safemean([epinfo['r'] for epinfo in eval_epinfobuf]) )
                 logger.logkv('eval_eplenmean', safemean([epinfo['l'] for epinfo in eval_epinfobuf]) )
-            logger.logkv('time_elapsed', tnow - tfirststart)
+            logger.logkv('misc/time_elapsed', tnow - tfirststart)
             for (lossval, lossname) in zip(lossvals, model.loss_names):
-                logger.logkv(lossname, lossval)
-            if MPI is None or MPI.COMM_WORLD.Get_rank() == 0:
-                logger.dumpkvs()
+                logger.logkv('loss/' + lossname, lossval)
+
+            logger.dumpkvs()
+
     return model
 # Avoid division error when calculate the mean (in our case if epinfo is empty returns np.nan, not return an error)
 def safemean(xs):
     return np.nan if len(xs) == 0 else np.mean(xs)
-
 
 

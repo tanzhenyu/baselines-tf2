@@ -185,6 +185,12 @@ def parse_cmdline_kwargs(args):
     return {k: parse(v) for k,v in parse_unknown_args(args).items()}
 
 
+def configure_logger(log_path, **kwargs):
+    if log_path is not None:
+        logger.configure(log_path)
+    else:
+        logger.configure(**kwargs)
+
 
 def main(args):
     # configure logger, disable logging in child MPI processes (with rank > 0)
@@ -195,23 +201,24 @@ def main(args):
 
     if MPI is None or MPI.COMM_WORLD.Get_rank() == 0:
         rank = 0
-        logger.configure()
+        configure_logger(args.log_path)
     else:
-        logger.configure(format_strs=[])
         rank = MPI.COMM_WORLD.Get_rank()
+        configure_logger(args.log_path, format_strs=[])
 
     model, env = train(args, extra_args)
 
     if args.save_path is not None and rank == 0:
         save_path = osp.expanduser(args.save_path)
-        ckpt = tf.train.Checkpoint(step=model.optimizer.iterations, model=model)
+        ckpt = tf.train.Checkpoint(model=model)
         manager = tf.train.CheckpointManager(ckpt, save_path, max_to_keep=None)
-        #ckpt.save(save_path)
         manager.save()
 
     if args.play:
         logger.log("Running trained model")
         obs = env.reset()
+        if not isinstance(env, VecEnv):
+            obs = np.expand_dims(np.array(obs), axis=0)
 
         state = model.initial_state if hasattr(model, 'initial_state') else None
         dones = np.zeros((1,))
@@ -219,11 +226,13 @@ def main(args):
         episode_rew = 0
         while True:
             if state is not None:
-                actions, _, state, _ = model.step(obs,S=state, M=dones)
+                actions, _, state, _ = model.step(obs)
             else:
               actions, _, _, _ = model.step(np.expand_dims(np.array(obs), axis=0))
 
             obs, rew, done, _ = env.step(actions.numpy())
+            if not isinstance(env, VecEnv):
+                obs = np.expand_dims(np.array(obs), axis=0)
             episode_rew += rew[0] if isinstance(env, VecEnv) else rew
             env.render()
             done = done.any() if isinstance(done, np.ndarray) else done

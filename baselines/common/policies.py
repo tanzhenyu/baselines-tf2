@@ -46,7 +46,7 @@ class PolicyWithValue(tf.Module):
         Parameters:
         ----------
 
-        observation     observation data (either single or a batch)
+        observation     batched observation data
 
         Returns:
         -------

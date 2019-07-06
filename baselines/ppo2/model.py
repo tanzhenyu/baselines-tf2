@@ -8,7 +8,7 @@ try:
 except ImportError:
     MPI = None
 
-class Model(tf.keras.Model):
+class Model(tf.Module):
     """
     We use this object to :
     __init__:
@@ -21,10 +21,13 @@ class Model(tf.keras.Model):
     save/load():
     - Save load the model
     """
-    def __init__(self, *, ac_space, policy_network, value_network=None, ent_coef, vf_coef, max_grad_norm, lr):
+    def __init__(self, *, ac_space, policy_network, value_network=None, ent_coef, vf_coef, max_grad_norm):
         super(Model, self).__init__(name='PPO2Model')
         self.train_model = PolicyWithValue(ac_space, policy_network, value_network, estimate_q=False)
-        self.optimizer = tf.keras.optimizers.Adam(learning_rate=lr, epsilon=1e-5)
+        if MPI is not None:
+          self.optimizer = MpiAdamOptimizer(MPI.COMM_WORLD)
+        else:
+          self.optimizer = tf.keras.optimizers.Adam()
         self.ent_coef = ent_coef
         self.vf_coef = vf_coef
         self.max_grad_norm = max_grad_norm
@@ -32,6 +35,8 @@ class Model(tf.keras.Model):
         self.value = self.train_model.value
         self.initial_state = self.train_model.initial_state
         self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac']
+        if MPI is not None:
+          sync_from_root(self.variables)
 
     @tf.function
     def train(self, lr, cliprange, obs, returns, masks, actions, values, neglogpac_old, states=None):
@@ -70,5 +75,5 @@ class Model(tf.keras.Model):
         self.optimizer.learning_rate = lr
         self.optimizer.apply_gradients(grads_and_vars)
 
-        return pg_loss, vf_loss, entropy, approxkl, clipfrac, vpred, vpredclipped
+        return pg_loss, vf_loss, entropy, approxkl, clipfrac
 

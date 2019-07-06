@@ -16,6 +16,7 @@ def nature_cnn(input_shape, **conv_kwargs):
     """
     CNN from Nature paper.
     """
+    print('input shape is {}'.format(input_shape))
     x_input = tf.keras.Input(shape=input_shape, dtype=tf.uint8)
     h = x_input
     h = tf.cast(h, tf.float32) / 255.
@@ -83,6 +84,7 @@ def conv_only(convs=[(32, 8, 4), (64, 4, 2), (64, 3, 1)], **conv_kwargs):
     '''
 
     def network_fn(input_shape):
+        print('input shape is {}'.format(input_shape))
         x_input = tf.keras.Input(shape=input_shape, dtype=tf.uint8)
         h = x_input
         h = tf.cast(h, tf.float64) / 255.
