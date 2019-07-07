@@ -6,6 +6,7 @@ import numpy as np
 
 from baselines import logger
 from baselines.common.schedules import LinearSchedule
+from baselines.common.vec_env.vec_env import VecEnv
 from baselines.common import set_global_seeds
 
 from baselines import deepq
@@ -131,8 +132,6 @@ def learn(env,
 
     if load_path is not None:
         load_path = osp.expanduser(load_path)
-        model.optimizer._create_hypers()
-        model.optimizer.iterations
         ckpt = tf.train.Checkpoint(model=model)
         manager = tf.train.CheckpointManager(ckpt, load_path, max_to_keep=None)
         ckpt.restore(manager.latest_checkpoint)
@@ -159,6 +158,9 @@ def learn(env,
     episode_rewards = [0.0]
     saved_mean_reward = None
     obs = env.reset()
+    # always mimic the vectorized env
+    if not isinstance(env, VecEnv):
+        obs = np.expand_dims(np.array(obs), axis=0)
     reset = True
 
     for t in range(total_timesteps):
@@ -179,17 +181,25 @@ def learn(env,
             kwargs['reset'] = reset
             kwargs['update_param_noise_threshold'] = update_param_noise_threshold
             kwargs['update_param_noise_scale'] = True
-        action, _, _, _ = model.step(tf.constant(np.expand_dims(np.array(obs), axis=0)), update_eps=update_eps, **kwargs)
+        action, _, _, _ = model.step(tf.constant(obs), update_eps=update_eps, **kwargs)
         action = action[0].numpy()
         reset = False
         new_obs, rew, done, _ = env.step(action)
         # Store transition in the replay buffer.
-        replay_buffer.add(obs, action, rew, new_obs, float(done))
+        if not isinstance(env, VecEnv):
+            new_obs = np.expand_dims(np.array(obs), axis=0)
+            replay_buffer.add(obs[0], action, rew, new_obs[0], float(done))
+        else:
+            replay_buffer.add(obs[0], action, rew[0], new_obs[0], float(done[0]))
+        # # Store transition in the replay buffer.
+        # replay_buffer.add(obs, action, rew, new_obs, float(done))
         obs = new_obs
 
         episode_rewards[-1] += rew
         if done:
             obs = env.reset()
+            if not isinstance(env, VecEnv):
+                obs = np.expand_dims(np.array(obs), axis=0)
             episode_rewards.append(0.0)
             reset = True
 
@@ -205,7 +215,6 @@ def learn(env,
             actions, rewards, dones = tf.constant(actions), tf.constant(rewards), tf.constant(dones)
             weights = tf.constant(weights)
             td_errors = model.train(obses_t, actions, rewards, obses_tp1, dones, weights)
-            #print('done train {}'.format(t))
             if prioritized_replay:
                 new_priorities = np.abs(td_errors) + prioritized_replay_eps
                 replay_buffer.update_priorities(batch_idxes, new_priorities)

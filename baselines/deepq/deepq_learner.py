@@ -1,18 +1,18 @@
-"""Deep Q learning graph
+"""Deep Q model
 
-The functions in this file can are used to create the following functions:
+The functions in this model:
 
-======= act ========
+======= step ========
 
     Function to chose an action given an observation
 
     Parameters
     ----------
-    observation: object
+    observation: tensor
         Observation that can be feed into the output of make_obs_ph
     stochastic: bool
         if set to False all the actions are always deterministic (default False)
-    update_eps_ph: float
+    update_eps: float
         update epsilon a new value, if negative not update happens
         (default: no update)
 
@@ -22,7 +22,8 @@ The functions in this file can are used to create the following functions:
     every element of the batch.
 
 
-======= act (in case of parameter noise) ========
+(NOT IMPLEMENTED YET)
+======= step (in case of parameter noise) ========
 
     Function to chose an action given an observation
 
@@ -32,14 +33,14 @@ The functions in this file can are used to create the following functions:
         Observation that can be feed into the output of make_obs_ph
     stochastic: bool
         if set to False all the actions are always deterministic (default False)
-    update_eps_ph: float
+    update_eps: float
         update epsilon to a new value, if negative no update happens
         (default: no update)
-    reset_ph: bool
+    reset: bool
         reset the perturbed policy by sampling a new perturbation
-    update_param_noise_threshold_ph: float
+    update_param_noise_threshold: float
         the desired threshold for the difference between non-perturbed and perturbed policy
-    update_param_noise_scale_ph: bool
+    update_param_noise_scale: bool
         whether or not to update the scale of the noise for the next time it is re-perturbed
 
     Returns
@@ -50,9 +51,9 @@ The functions in this file can are used to create the following functions:
 
 ======= train =======
 
-    Function that takes a transition (s,a,r,s') and optimizes Bellman equation's error:
+    Function that takes a transition (s,a,r,s',d) and optimizes Bellman equation's error:
 
-        td_error = Q(s,a) - (r + gamma * max_a' Q(s', a'))
+        td_error = Q(s,a) - (r + gamma * (1-d) * max_a' Q(s', a'))
         loss = huber_loss[td_error]
 
     Parameters
@@ -149,14 +150,14 @@ class DEEPQ(tf.Module):
     def train(self, obs0, actions, rewards, obs1, dones, importance_weights):
       with tf.GradientTape() as tape:
         q_t = self.q_network(obs0)
-        q_t_selected = tf.reduce_sum(q_t * tf.one_hot(actions, self.num_actions, dtype=tf.float64), 1)
+        q_t_selected = tf.reduce_sum(q_t * tf.one_hot(actions, self.num_actions, dtype=tf.float32), 1)
 
         q_tp1 = self.target_q_network(obs1)
 
         if self.double_q:
             q_tp1_using_online_net = self.q_network(obs1)
             q_tp1_best_using_online_net = tf.argmax(q_tp1_using_online_net, 1)
-            q_tp1_best = tf.reduce_sum(q_tp1 * tf.one_hot(q_tp1_best_using_online_net, self.num_actions, dtype=tf.float64), 1)
+            q_tp1_best = tf.reduce_sum(q_tp1 * tf.one_hot(q_tp1_best_using_online_net, self.num_actions, dtype=tf.float32), 1)
         else:
             q_tp1_best = tf.reduce_max(q_tp1, 1)
 
