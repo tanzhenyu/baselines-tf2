@@ -11,6 +11,7 @@ from baselines.common.models import get_network_builder
 from baselines.common.mpi_adam import MpiAdam
 from baselines.common.cg import cg
 from baselines.common.policies import PolicyWithValue
+from baselines.common.vec_env.vec_env import VecEnv
 from contextlib import contextmanager
 
 try:
@@ -25,8 +26,8 @@ def traj_segment_generator(pi, env, horizon):
     new = True
     rew = 0.0
     ob = env.reset()
-    if (ob.shape[0] == 1):
-        ob = np.squeeze(ob, axis=0)
+    if not isinstance(env, VecEnv):
+      ob = np.expand_dims(ob, axis=0)
 
     cur_ep_ret = 0
     cur_ep_len = 0
@@ -43,7 +44,7 @@ def traj_segment_generator(pi, env, horizon):
 
     while True:
         prevac = ac
-        ac, vpred, _, _ = pi.step(np.expand_dims(ob, axis=0))
+        ac, vpred, _, _ = pi.step(ob)
         ac = ac.numpy()
         # Slight weirdness here because we need value function at time T
         # before returning segment [0, T-1] so we get the correct
@@ -52,7 +53,7 @@ def traj_segment_generator(pi, env, horizon):
             yield {"ob" : obs, "rew" : rews, "vpred" : vpreds, "new" : news,
                     "ac" : acs, "prevac" : prevacs, "nextvpred": vpred * (1 - new),
                     "ep_rets" : ep_rets, "ep_lens" : ep_lens}
-            _, vpred, _, _ = pi.step(np.expand_dims(ob, axis=0))
+            _, vpred, _, _ = pi.step(ob)
             # Be careful!!! if you change the downstream algorithm to aggregate
             # several of these batches, then be sure to do a deepcopy
             ep_rets = []
@@ -65,8 +66,8 @@ def traj_segment_generator(pi, env, horizon):
         prevacs[i] = prevac
 
         ob, rew, new, _ = env.step(ac)
-        if (ob.shape[0] == 1):
-            ob = np.squeeze(ob, axis=0)
+        if not isinstance(env, VecEnv):
+          ob = np.expand_dims(ob, axis=0)
         rews[i] = rew
 
         cur_ep_ret += rew
@@ -77,8 +78,8 @@ def traj_segment_generator(pi, env, horizon):
             cur_ep_ret = 0
             cur_ep_len = 0
             ob = env.reset()
-            if (ob.shape[0] == 1):
-                ob = np.squeeze(ob, axis=0)
+            if not isinstance(env, VecEnv):
+              ob = np.expand_dims(ob, axis=0)
         t += 1
 
 def add_vtarg_and_adv(seg, gamma, lam):
@@ -174,28 +175,29 @@ def learn(*,
     ac_space = env.action_space
 
     if isinstance(network, str):
-        network_type = network
-        network_fn = get_network_builder(network_type)(**network_kwargs)
-        with tf.name_scope("pi"):
-            pi_policy_network = network_fn(ob_space.shape)
-            pi_value_network = network_fn(ob_space.shape)
-            pi = PolicyWithValue(ac_space, pi_policy_network, pi_value_network)
-        with tf.name_scope("oldpi"):
-            old_pi_policy_network = network_fn(ob_space.shape)
-            old_pi_value_network = network_fn(ob_space.shape)
-            oldpi = PolicyWithValue(ac_space, old_pi_policy_network, old_pi_value_network)
+        network = get_network_builder(network)(**network_kwargs)
+
+    with tf.name_scope("pi"):
+        pi_policy_network = network(ob_space.shape)
+        pi_value_network = network(ob_space.shape)
+        pi = PolicyWithValue(ac_space, pi_policy_network, pi_value_network)
+    with tf.name_scope("oldpi"):
+        old_pi_policy_network = network(ob_space.shape)
+        old_pi_value_network = network(ob_space.shape)
+        oldpi = PolicyWithValue(ac_space, old_pi_policy_network, old_pi_value_network)
 
     pi_var_list = pi_policy_network.trainable_variables + list(pi.pdtype.trainable_variables)
     old_pi_var_list = old_pi_policy_network.trainable_variables + list(oldpi.pdtype.trainable_variables)
     vf_var_list = pi_value_network.trainable_variables + pi.value_fc.trainable_variables
     old_vf_var_list = old_pi_value_network.trainable_variables + oldpi.value_fc.trainable_variables
-    vfadam = MpiAdam(vf_var_list)
 
     if load_path is not None:
         load_path = osp.expanduser(load_path)
         ckpt = tf.train.Checkpoint(model=pi)
         manager = tf.train.CheckpointManager(ckpt, load_path, max_to_keep=None)
         ckpt.restore(manager.latest_checkpoint)
+
+    vfadam = MpiAdam(vf_var_list)
 
     get_flat = U.GetFlat(pi_var_list)
     set_from_flat = U.SetFromFlat(pi_var_list)
@@ -209,9 +211,6 @@ def learn(*,
         for vf_var, old_vf_var in zip(vf_var_list, old_vf_var_list):
             old_vf_var.assign(vf_var)
 
-    #ob shape should be [batch_size, ob_dim], merged nenv
-    #ac shape should be [batch_size]
-    #atarg shape should be [batch_size]
     @tf.function
     def compute_lossandgrad(ob, ac, atarg):
         with tf.GradientTape() as tape:
@@ -342,7 +341,7 @@ def learn(*,
 
         # ob, ac, atarg, ret, td1ret = map(np.concatenate, (obs, acs, atargs, rets, td1rets))
         ob, ac, atarg, tdlamret = seg["ob"], seg["ac"], seg["adv"], seg["tdlamret"]
-        # ob = sf01(ob)
+        ob = sf01(ob)
         vpredbefore = seg["vpred"] # predicted value function before udpate
         atarg = (atarg - atarg.mean()) / atarg.std() # standardized advantage function estimate
 
@@ -405,7 +404,7 @@ def learn(*,
             for _ in range(vf_iters):
                 for (mbob, mbret) in dataset.iterbatches((seg["ob"], seg["tdlamret"]),
                 include_final_partial_batch=False, batch_size=64):
-                    # mbob = sf01(mbob)
+                    mbob = sf01(mbob)
                     g = allmean(compute_vflossandgrad(mbob, mbret).numpy())
                     vfadam.update(g, vf_stepsize)
 
