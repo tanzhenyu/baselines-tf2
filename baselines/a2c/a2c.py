@@ -152,10 +152,6 @@ def learn(
     # Calculate the batch_size
     nbatch = nenvs * nsteps
     nupdates = total_timesteps // nbatch
-    print('nenvs is {}'.format(nenvs))
-    print('nsteps is {}'.format(nsteps))
-    print('timesteps is {}'.format(total_timesteps))
-    print('nupdates is {}'.format(nupdates))
 
     # Instantiate the model object (that creates step_model and train_model)
     model = Model(ac_space=ac_space, policy_network=policy_network, nupdates=nupdates, ent_coef=ent_coef, vf_coef=vf_coef,
@@ -166,10 +162,6 @@ def learn(
         ckpt = tf.train.Checkpoint(model=model)
         manager = tf.train.CheckpointManager(ckpt, load_path, max_to_keep=None)
         ckpt.restore(manager.latest_checkpoint)
-        print("Restoring from {}".format(manager.latest_checkpoint))
-        print('after restore, all trainable weights {}'.format(model.train_model.policy_network.trainable_weights))
-        print('after restore, all optimizer weights {}'.format(model.optimizer.weights))
-        print('after restore, optimizer config {}'.format(model.optimizer.get_config()))
 
     # Instantiate the runner object
     runner = Runner(env, model, nsteps=nsteps, gamma=gamma)
@@ -183,6 +175,13 @@ def learn(
         obs, states, rewards, masks, actions, values, epinfos = runner.run()
         epinfobuf.extend(epinfos)
 
+        obs = tf.constant(obs)
+        if states is not None:
+            states = tf.constant(states)
+        rewards = tf.constant(rewards)
+        masks = tf.constant(masks)
+        actions = tf.constant(actions)
+        values = tf.constant(values)
         policy_loss, value_loss, policy_entropy = model.train(obs, states, rewards, masks, actions, values)
         nseconds = time.time()-tstart
 

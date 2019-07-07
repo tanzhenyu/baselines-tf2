@@ -26,13 +26,12 @@ class Runner(AbstractEnvRunner):
             # Given observations, take action and value (V(s))
             # We already have self.obs because Runner superclass run self.obs[:] = env.reset() on init
             obs = tf.constant(self.obs)
-            actions, values, self.states, _ = self.model.step(self.obs)
+            actions, values, self.states, _ = self.model.step(obs)
+            actions = actions.numpy()
 
             # Append the experiences
             mb_obs.append(np.copy(self.obs))
-            actions = actions.numpy()
             mb_actions.append(actions)
-            values = values.numpy()
             mb_values.append(values)
             mb_dones.append(self.dones)
 
@@ -56,7 +55,7 @@ class Runner(AbstractEnvRunner):
 
         if self.gamma > 0.0:
             # Discount/bootstrap off value fn
-            last_values = self.model.value(tf.constant(self.obs)).numpy()
+            last_values = self.model.value(tf.constant(self.obs)).numpy().tolist()
             for n, (rewards, dones, value) in enumerate(zip(mb_rewards, mb_dones, last_values)):
                 rewards = rewards.tolist()
                 dones = dones.tolist()
