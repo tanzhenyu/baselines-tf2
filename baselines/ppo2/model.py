@@ -38,8 +38,19 @@ class Model(tf.Module):
         if MPI is not None:
           sync_from_root(self.variables)
 
-    @tf.function
     def train(self, lr, cliprange, obs, returns, masks, actions, values, neglogpac_old, states=None):
+        grads, pg_loss, vf_loss, entropy, approxkl, clipfrac = self.get_grad(
+            cliprange, obs, returns, masks, actions, values, neglogpac_old)
+        var_list = self.train_model.trainable_variables
+        grads_and_vars = list(zip(grads, var_list))
+        self.optimizer.learning_rate = lr
+        self.optimizer.apply_gradients(grads_and_vars)
+
+        return pg_loss, vf_loss, entropy, approxkl, clipfrac
+
+
+    @tf.function
+    def get_grad(self, cliprange, obs, returns, masks, actions, values, neglogpac_old):
         # Here we calculate advantage A(s,a) = R + yV(s') - V(s)
         # Returns = R + yV(s')
         advs = returns - values
@@ -68,12 +79,7 @@ class Model(tf.Module):
 
             loss = pg_loss - entropy * self.ent_coef + vf_loss * self.vf_coef
 
-        var_list = tape.watched_variables()
+        var_list = self.train_model.trainable_variables
         grads = tape.gradient(loss, var_list)
         grads, _ = tf.clip_by_global_norm(grads, self.max_grad_norm)
-        grads_and_vars = list(zip(grads, var_list))
-        self.optimizer.learning_rate = lr
-        self.optimizer.apply_gradients(grads_and_vars)
-
-        return pg_loss, vf_loss, entropy, approxkl, clipfrac
-
+        return grads, pg_loss, vf_loss, entropy, approxkl, clipfrac

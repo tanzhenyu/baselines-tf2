@@ -15,7 +15,7 @@ class MpiAdamOptimizer(tf.keras.optimizers.Adam):
 
     def apply_gradients(self, grads_and_vars):
         grads = [g for g, _ in grads_and_vars if g is not None]
-        var_list = [v for g, _ in grads_and_vars if g is not None]
+        var_list = [v for g, v in grads_and_vars if g is not None]
         flat_grad = tf.concat([tf.reshape(g, (-1,)) for g in grads], axis=0)
         shapes = [v.shape.as_list() for v in var_list]
         sizes = [int(np.prod(s)) for s in shapes]
@@ -24,8 +24,12 @@ class MpiAdamOptimizer(tf.keras.optimizers.Adam):
         self.comm.Allreduce(flat_grad.numpy(), buf, op=MPI.SUM)
         avg_flat_grad = np.divide(buf, float(self.comm.Get_size()))
         avg_grads = tf.split(avg_flat_grad, sizes, axis=0)
-        avg_grads_and_vars = zip(avg_grads, var_list)
+        avg_grads_and_vars = []
+        for grad, v in zip(avg_grads, var_list):
+            avg_grads_and_vars.append((tf.reshape(grad, v.shape), v))
         super(MpiAdamOptimizer, self).apply_gradients(avg_grads_and_vars)
+        if self.iterations.numpy() % 100 == 0:
+            check_synced(tf.reduce_sum(avg_grads_and_vars[0][1]).numpy())
 
 
 def check_synced(localval, comm=None):

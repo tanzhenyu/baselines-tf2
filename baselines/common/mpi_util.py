@@ -22,7 +22,7 @@ def sync_from_root(variables, comm=None):
     import tensorflow as tf
     values = comm.bcast([var.numpy() for var in variables])
     for (var, val) in zip(variables, values):
-      tf.assign(var, val)
+        var.assign(val)
 
 def gpu_count():
     """
