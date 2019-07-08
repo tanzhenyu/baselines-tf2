@@ -87,7 +87,7 @@ def conv_only(convs=[(32, 8, 4), (64, 4, 2), (64, 3, 1)], **conv_kwargs):
         print('input shape is {}'.format(input_shape))
         x_input = tf.keras.Input(shape=input_shape, dtype=tf.uint8)
         h = x_input
-        h = tf.cast(h, tf.float64) / 255.
+        h = tf.cast(h, tf.float32) / 255.
         with tf.name_scope("convnet"):
             for num_outputs, kernel_size, stride in convs:
                 h = tf.keras.layers.Conv2D(

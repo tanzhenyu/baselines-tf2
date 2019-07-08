@@ -115,8 +115,9 @@ class DEEPQ(tf.Module):
       self.double_q = double_q
       self.param_noise = param_noise
       self.param_noise_filter_func = param_noise_filter_func
+      self.grad_norm_clipping = grad_norm_clipping
 
-      self.optimizer = tf.keras.optimizers.Adam(lr, clipnorm=grad_norm_clipping)
+      self.optimizer = tf.keras.optimizers.Adam(lr)
 
       with tf.name_scope('q_network'):
         self.q_network = q_func(observation_shape, num_actions)
@@ -171,9 +172,13 @@ class DEEPQ(tf.Module):
         weighted_error = tf.reduce_mean(importance_weights * errors)
 
       grads = tape.gradient(weighted_error, self.q_network.trainable_variables)
+      if self.grad_norm_clipping:
+        clipped_grads = []
+        for grad in grads:
+          clipped_grads.append(tf.clip_by_norm(grad, self.grad_norm_clipping))
+        clipped_grads = grads
       grads_and_vars = zip(grads, self.q_network.trainable_variables)
       self.optimizer.apply_gradients(grads_and_vars)
-      # self.optimizer.minimize(weighted_error, var_list=self.q_network.trainable_variables)
 
       return td_error
 

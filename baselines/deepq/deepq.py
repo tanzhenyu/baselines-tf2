@@ -187,7 +187,7 @@ def learn(env,
         new_obs, rew, done, _ = env.step(action)
         # Store transition in the replay buffer.
         if not isinstance(env, VecEnv):
-            new_obs = np.expand_dims(np.array(obs), axis=0)
+            new_obs = np.expand_dims(np.array(new_obs), axis=0)
             replay_buffer.add(obs[0], action, rew, new_obs[0], float(done))
         else:
             replay_buffer.add(obs[0], action, rew[0], new_obs[0], float(done[0]))
