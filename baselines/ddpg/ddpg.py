@@ -140,7 +140,7 @@ def learn(network, env,
                 agent.reset()
             for t_rollout in range(nb_rollout_steps):
                 # Predict next action.
-                action, q, _, _ = agent.step(tf.constant(obs.reshape((1,-1))), apply_noise=True, compute_Q=True)
+                action, q, _, _ = agent.step(tf.constant(obs), apply_noise=True, compute_Q=True)
                 action, q = action.numpy(), q.numpy()
 
                 # Execute next action.
