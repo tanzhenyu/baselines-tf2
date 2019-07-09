@@ -14,8 +14,11 @@ class MpiAdamOptimizer(tf.keras.optimizers.Adam):
         super(MpiAdamOptimizer, self).__init__(name='MpiAdam', **kwargs)
 
     def apply_gradients(self, grads_and_vars):
-        grads = [g for g, _ in grads_and_vars if g is not None]
-        var_list = [v for g, v in grads_and_vars if g is not None]
+        grads, var_list = [], []
+        for g, v in grads_and_vars:
+            if g is not None:
+                grads.append(g)
+                var_list.append(v)
         flat_grad = tf.concat([tf.reshape(g, (-1,)) for g in grads], axis=0)
         shapes = [v.shape.as_list() for v in var_list]
         sizes = [int(np.prod(s)) for s in shapes]
