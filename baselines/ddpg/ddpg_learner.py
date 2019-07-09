@@ -34,7 +34,7 @@ def reduce_var(x, axis=None, keepdims=False):
     devs_squared = tf.square(x - m)
     return tf.reduce_mean(devs_squared, axis=axis, keepdims=keepdims)
 
-@tf.function(autograph=False)
+# @tf.function
 def update_perturbed_actor(actor, perturbed_actor, param_noise_stddev):
 
     for var, perturbed_var in zip(actor.variables, perturbed_actor.variables):
@@ -86,8 +86,8 @@ class DDPG(tf.Module):
             self.ret_rms = None
 
         # Create target networks.
-        self.target_actor = Actor(actor.nb_actions, observation_shape, name='target_actor', network=actor.network, **actor.network_kwargs)
         self.target_critic = Critic(actor.nb_actions, observation_shape, name='target_critic', network=critic.network, **critic.network_kwargs)
+        self.target_actor = Actor(actor.nb_actions, observation_shape, name='target_actor', network=actor.network, **actor.network_kwargs)
 
         # Set up parts.
         if self.param_noise is not None:
@@ -100,6 +100,44 @@ class DDPG(tf.Module):
         else:
             self.actor_optimizer = tf.keras.optimizers.Adam(learning_rate=actor_lr)
             self.critic_optimizer = tf.keras.optimizers.Adam(learning_rate=critic_lr)
+
+        logger.info('setting up actor optimizer')
+        actor_shapes = [var.get_shape().as_list() for var in self.actor.trainable_variables]
+        actor_nb_params = sum([reduce(lambda x, y: x * y, shape) for shape in actor_shapes])
+        logger.info('  actor shapes: {}'.format(actor_shapes))
+        logger.info('  actor params: {}'.format(actor_nb_params))
+        logger.info('setting up critic optimizer')
+        critic_shapes = [var.get_shape().as_list() for var in self.critic.trainable_variables]
+        critic_nb_params = sum([reduce(lambda x, y: x * y, shape) for shape in critic_shapes])
+        logger.info('  critic shapes: {}'.format(critic_shapes))
+        logger.info('  critic params: {}'.format(critic_nb_params))
+        if self.critic_l2_reg > 0.:
+            critic_reg_vars = []
+            for layer in self.critic.network_builder.layers[1:]:
+                critic_reg_vars.append(layer.kernel)
+            for var in critic_reg_vars:
+                logger.info('  regularizing: {}'.format(var.name))
+            logger.info('  applying l2 regularization with {}'.format(self.critic_l2_reg))
+
+        logger.info('setting up critic target updates ...')
+        for var, target_var in zip(self.critic.variables, self.target_critic.variables):
+            logger.info('  {} <- {}'.format(target_var.name, var.name))
+        logger.info('setting up actor target updates ...')
+        for var, target_var in zip(self.actor.variables, self.target_actor.variables):
+            logger.info('  {} <- {}'.format(target_var.name, var.name))
+
+        if self.param_noise:
+            logger.info('setting up param noise')
+            for var, perturbed_var in zip(self.actor.variables, self.perturbed_actor.variables):
+                if var in actor.perturbable_vars:
+                    logger.info('  {} <- {} + noise'.format(perturbed_var.name, var.name))
+                else:
+                    logger.info('  {} <- {}'.format(perturbed_var.name, var.name))
+            for var, perturbed_var in zip(self.actor.variables, self.perturbed_adaptive_actor.variables):
+                if var in actor.perturbable_vars:
+                    logger.info('  {} <- {} + noise'.format(perturbed_var.name, var.name))
+                else:
+                    logger.info('  {} <- {}'.format(perturbed_var.name, var.name))
 
         if self.normalize_returns and self.enable_popart:
             self.setup_popart()
