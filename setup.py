@@ -32,7 +32,7 @@ setup(name='baselines',
       packages=[package for package in find_packages()
                 if package.startswith('baselines')],
       install_requires=[
-          'tf-nightly-2.0-preview',
+          'tensorflow==2.0.0-alpha0',
           'gym',
           'scipy',
           'tqdm',

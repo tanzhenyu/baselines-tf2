@@ -12,15 +12,15 @@ class RunningMeanStd(tf.Module):
         self._sum = tf.Variable(
             initial_value=np.zeros(shape=shape, dtype=np.float64),
             dtype=tf.float64,
-            name="runningsum")
+            name="runningsum", trainable=False)
         self._sumsq = tf.Variable(
             initial_value=np.full(shape=shape, fill_value=epsilon, dtype=np.float64),
             dtype=tf.float64,
-            name="runningsumsq")
+            name="runningsumsq", trainable=False)
         self._count = tf.Variable(
             initial_value=epsilon,
             dtype=tf.float64,
-            name="count")
+            name="count", trainable=False)
         self.shape = shape
         self.epsilon = epsilon
 
@@ -28,11 +28,12 @@ class RunningMeanStd(tf.Module):
         x = x.astype('float64')
         n = int(np.prod(self.shape))
         addvec = np.concatenate([x.sum(axis=0).ravel(), np.square(x).sum(axis=0).ravel(), np.array([len(x)],dtype='float64')])
+        totalvec = np.zeros(n*2+1, 'float64')
         if MPI is not None:
-            totalvec = np.zeros(n*2+1, 'float64')
+            # totalvec = np.zeros(n*2+1, 'float64')
             MPI.COMM_WORLD.Allreduce(addvec, totalvec, op=MPI.SUM)
-        else:
-            totalvec = addvec
+        # else:
+        #     totalvec = addvec
         self._sum.assign_add(totalvec[0:n].reshape(self.shape))
         self._sumsq.assign_add(totalvec[n:2*n].reshape(self.shape))
         self._count.assign_add(totalvec[2*n])
