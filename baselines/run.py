@@ -228,7 +228,7 @@ def main(args):
             if state is not None:
                 actions, _, state, _ = model.step(obs)
             else:
-              actions, _, _, _ = model.step(np.expand_dims(np.array(obs), axis=0))
+              actions, _, _, _ = model.step(obs)
 
             obs, rew, done, _ = env.step(actions.numpy())
             if not isinstance(env, VecEnv):
