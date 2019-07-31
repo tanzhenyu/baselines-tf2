@@ -25,7 +25,7 @@ def denormalize(x, stats):
         return x
     return x * stats.std + stats.mean
 
-@tf.function(autograph=False)
+@tf.function
 def reduce_std(x, axis=None, keepdims=False):
     return tf.sqrt(reduce_var(x, axis=axis, keepdims=keepdims))
 
@@ -164,7 +164,7 @@ class DDPG(tf.Module):
             assert M.get_shape()[-1] == 1
             assert b.get_shape()[-1] == 1
 
-    @tf.function(autograph=False)
+    @tf.function
     def step(self, obs, apply_noise=True, compute_Q=True):
         normalized_obs = tf.clip_by_value(normalize(obs, self.obs_rms), self.observation_range[0], self.observation_range[1])
         actor_tf = self.actor(normalized_obs)
@@ -228,7 +228,7 @@ class DDPG(tf.Module):
         target_Q = rewards + (1. - terminals1) * self.gamma * Q_obs1
         return normalized_obs0, target_Q
 
-    @tf.function(autograph=False)
+    @tf.function
     def get_actor_grads(self, normalized_obs0):
         with tf.GradientTape() as tape:
             actor_tf = self.actor(normalized_obs0)
@@ -240,7 +240,7 @@ class DDPG(tf.Module):
             actor_grads = [tf.clip_by_norm(grad, clip_norm=self.clip_norm) for grad in actor_grads]
         return actor_grads, actor_loss
 
-    @tf.function(autograph=False)
+    @tf.function
     def get_critic_grads(self, normalized_obs0, actions, target_Q):
         with tf.GradientTape() as tape:
             normalized_critic_tf = self.critic(normalized_obs0, actions)
@@ -264,7 +264,7 @@ class DDPG(tf.Module):
         self.target_actor.set_weights(self.actor.get_weights())
         self.target_critic.set_weights(self.critic.get_weights())
 
-    @tf.function(autograph=False)
+    @tf.function
     def update_target_net(self):
         for var, target_var in zip(self.actor.variables, self.target_actor.variables):
             target_var.assign((1. - self.tau) * target_var + self.tau * var)
@@ -326,7 +326,7 @@ class DDPG(tf.Module):
         self.param_noise.adapt(mean_distance)
         return mean_distance
 
-    @tf.function(autograph=False)
+    @tf.function
     def get_mean_distance(self, obs0):
         # Perturb a separate copy of the policy to adjust the scale for the next "real" perturbation.
         update_perturbed_actor(self.actor, self.perturbed_adaptive_actor, self.param_noise.current_stddev)
