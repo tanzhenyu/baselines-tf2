@@ -44,6 +44,7 @@ def traj_segment_generator(pi, env, horizon):
 
     while True:
         prevac = ac
+        ob = tf.constant(ob)
         ac, vpred, _, _ = pi.step(ob)
         ac = ac.numpy()
         # Slight weirdness here because we need value function at time T
@@ -256,7 +257,7 @@ def learn(*,
             vferr = tf.reduce_mean(tf.square(pi_vf - ret))
         return U.flatgrad(tape.gradient(vferr, vf_var_list), vf_var_list)
 
-    @tf.function(autograph=False)
+    @tf.function
     def compute_fvp(flat_tangent, ob, ac, atarg):
         with tf.GradientTape() as outter_tape:
             with tf.GradientTape() as inner_tape:
