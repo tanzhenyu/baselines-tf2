@@ -7,7 +7,7 @@ try:
 except ImportError:
     MPI = None
 
-class MpiAdamOptimizer():
+class MpiAdamOptimizer(tf.Module):
     """Adam optimizer that averages gradients across mpi processes."""
     def __init__(self, comm, var_list):
         self.var_list = var_list
