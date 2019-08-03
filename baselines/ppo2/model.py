@@ -25,7 +25,7 @@ class Model(tf.Module):
         super(Model, self).__init__(name='PPO2Model')
         self.train_model = PolicyWithValue(ac_space, policy_network, value_network, estimate_q=False)
         if MPI is not None:
-          self.optimizer = MpiAdamOptimizer(MPI.COMM_WORLD)
+          self.optimizer = MpiAdamOptimizer(MPI.COMM_WORLD, self.train_model.trainable_variables)
         else:
           self.optimizer = tf.keras.optimizers.Adam()
         self.ent_coef = ent_coef
@@ -41,10 +41,12 @@ class Model(tf.Module):
     def train(self, lr, cliprange, obs, returns, masks, actions, values, neglogpac_old, states=None):
         grads, pg_loss, vf_loss, entropy, approxkl, clipfrac = self.get_grad(
             cliprange, obs, returns, masks, actions, values, neglogpac_old)
-        var_list = self.train_model.trainable_variables
-        grads_and_vars = list(zip(grads, var_list))
-        self.optimizer.learning_rate = lr
-        self.optimizer.apply_gradients(grads_and_vars)
+        if MPI is not None:
+            self.optimizer.apply_gradients(grads, lr)
+        else:
+            self.optimizer.learning_rate = lr
+            grads_and_vars = zip(grads, self.train_model.trainable_variables)
+            self.optimizer.apply_gradients(grads_and_vars)
 
         return pg_loss, vf_loss, entropy, approxkl, clipfrac
 
@@ -81,5 +83,8 @@ class Model(tf.Module):
 
         var_list = self.train_model.trainable_variables
         grads = tape.gradient(loss, var_list)
-        grads, _ = tf.clip_by_global_norm(grads, self.max_grad_norm)
+        if self.max_grad_norm is not None:
+            grads, _ = tf.clip_by_global_norm(grads, self.max_grad_norm)
+        if MPI is not None:
+            grads = tf.concat([tf.reshape(g, (-1,)) for g in grads], axis=0)
         return grads, pg_loss, vf_loss, entropy, approxkl, clipfrac

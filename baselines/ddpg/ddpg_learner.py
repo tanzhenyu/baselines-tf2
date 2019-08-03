@@ -70,6 +70,8 @@ class DDPG(tf.Module):
         self.batch_size = batch_size
         self.stats_sample = None
         self.critic_l2_reg = critic_l2_reg
+        self.actor_lr = tf.constant(actor_lr)
+        self.critic_lr = tf.constant(critic_lr)
 
         # Observation normalization.
         if self.normalize_observations:
@@ -95,8 +97,8 @@ class DDPG(tf.Module):
 
         if MPI is not None:
             comm = MPI.COMM_WORLD
-            self.actor_optimizer = MpiAdamOptimizer(comm, learning_rate=actor_lr)
-            self.critic_optimizer = MpiAdamOptimizer(comm, learning_rate=critic_lr)
+            self.actor_optimizer = MpiAdamOptimizer(comm, self.actor.trainable_variables)
+            self.critic_optimizer = MpiAdamOptimizer(comm, self.critic.trainable_variables)
         else:
             self.actor_optimizer = tf.keras.optimizers.Adam(learning_rate=actor_lr)
             self.critic_optimizer = tf.keras.optimizers.Adam(learning_rate=critic_lr)
@@ -195,7 +197,10 @@ class DDPG(tf.Module):
             if self.normalize_observations:
                 self.obs_rms.update(np.array([obs0[b]]))
 
-    def train(self, obs0, obs1, actions, rewards, terminals1):
+    def train(self):
+        batch = self.memory.sample(batch_size=self.batch_size)
+        obs0, obs1 = tf.constant(batch['obs0']), tf.constant(batch['obs1'])
+        actions, rewards, terminals1 = tf.constant(batch['actions']), tf.constant(batch['rewards']), tf.constant(batch['terminals1'], dtype=tf.float32)
         normalized_obs0, target_Q = self.compute_normalized_obs0_and_target_Q(obs0, obs1, rewards, terminals1)
 
         if self.normalize_returns and self.enable_popart:
@@ -210,13 +215,16 @@ class DDPG(tf.Module):
                 kernel.assign(kernel * old_std / new_std)
                 bias.assign((bias * old_std + old_mean - new_mean) / new_std)
 
-        actor_grads, actor_loss = self.get_actor_grads(normalized_obs0)
-        actor_grads_and_vars = zip(actor_grads, self.actor.trainable_variables)
-        self.actor_optimizer.apply_gradients(actor_grads_and_vars)
 
+        actor_grads, actor_loss = self.get_actor_grads(normalized_obs0)
         critic_grads, critic_loss = self.get_critic_grads(normalized_obs0, actions, target_Q)
-        critic_grads_and_vars = zip(critic_grads, self.critic.trainable_variables)
-        self.critic_optimizer.apply_gradients(critic_grads_and_vars)
+
+        if MPI is not None:
+            self.actor_optimizer.apply_gradients(actor_grads, self.actor_lr)
+            self.critic_optimizer.apply_gradients(critic_grads, self.critic_lr)
+        else:
+            self.actor_optimizer.apply_gradients(zip(actor_grads, self.actor.trainable_variables))
+            self.critic_optimizer.apply_gradients(zip(critic_grads, self.critic.trainable_variables))
 
         return critic_loss, actor_loss
 
@@ -238,6 +246,8 @@ class DDPG(tf.Module):
         actor_grads = tape.gradient(actor_loss, self.actor.trainable_variables)
         if self.clip_norm:
             actor_grads = [tf.clip_by_norm(grad, clip_norm=self.clip_norm) for grad in actor_grads]
+        if MPI is not None:
+            actor_grads = tf.concat([tf.reshape(g, (-1,)) for g in actor_grads], axis=0)
         return actor_grads, actor_loss
 
     @tf.function
@@ -255,6 +265,8 @@ class DDPG(tf.Module):
         critic_grads = tape.gradient(critic_loss, self.critic.trainable_variables)
         if self.clip_norm:
             critic_grads = [tf.clip_by_norm(grad, clip_norm=self.clip_norm) for grad in critic_grads]
+        if MPI is not None:
+            critic_grads = tf.concat([tf.reshape(g, (-1,)) for g in critic_grads], axis=0)
         return critic_grads, critic_loss
 
 

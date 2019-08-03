@@ -7,32 +7,40 @@ try:
 except ImportError:
     MPI = None
 
-class MpiAdamOptimizer(tf.keras.optimizers.Adam):
+class MpiAdamOptimizer():
     """Adam optimizer that averages gradients across mpi processes."""
-    def __init__(self, comm, **kwargs):
+    def __init__(self, comm, var_list):
+        self.var_list = var_list
         self.comm = comm
-        super(MpiAdamOptimizer, self).__init__(name='MpiAdam', **kwargs)
+        self.beta1 = 0.9
+        self.beta2 = 0.999
+        self.epsilon = 1e-08
+        self.t = tf.Variable(0, name='step', dtype=tf.int32)
+        var_shapes = [v.shape.as_list() for v in var_list]
+        self.var_sizes = [int(np.prod(s)) for s in var_shapes]
+        self.flat_var_size = sum(self.var_sizes)
+        self.m = tf.Variable(np.zeros(self.flat_var_size, 'float32'))
+        self.v = tf.Variable(np.zeros(self.flat_var_size, 'float32'))
 
-    def apply_gradients(self, grads_and_vars):
-        grads, var_list = [], []
-        for g, v in grads_and_vars:
-            if g is not None:
-                grads.append(g)
-                var_list.append(v)
-        flat_grad = tf.concat([tf.reshape(g, (-1,)) for g in grads], axis=0)
-        shapes = [v.shape.as_list() for v in var_list]
-        sizes = [int(np.prod(s)) for s in shapes]
-
-        buf = np.zeros(sum(sizes), np.float32)
+    def apply_gradients(self, flat_grad, lr):
+        buf = np.zeros(self.flat_var_size, np.float32)
         self.comm.Allreduce(flat_grad.numpy(), buf, op=MPI.SUM)
         avg_flat_grad = np.divide(buf, float(self.comm.Get_size()))
-        avg_grads = tf.split(avg_flat_grad, sizes, axis=0)
-        avg_grads_and_vars = []
-        for grad, v in zip(avg_grads, var_list):
-            avg_grads_and_vars.append((tf.reshape(grad, v.shape), v))
-        super(MpiAdamOptimizer, self).apply_gradients(avg_grads_and_vars)
-        if self.iterations.numpy() % 100 == 0:
-            check_synced(tf.reduce_sum(avg_grads_and_vars[0][1]).numpy())
+        self._apply_gradients(tf.constant(avg_flat_grad), lr)
+        if self.t.numpy() % 100 == 0:
+            check_synced(tf.reduce_sum(self.var_list[0]).numpy())
+
+    @tf.function
+    def _apply_gradients(self, avg_flat_grad, lr):
+        self.t.assign_add(1)
+        t = tf.cast(self.t, tf.float32)
+        a = lr * tf.math.sqrt(1 - tf.math.pow(self.beta2, t)) / (1 - tf.math.pow(self.beta1, t))
+        self.m.assign(self.beta1 * self.m + (1 - self.beta1) * avg_flat_grad)
+        self.v.assign(self.beta2 * self.v + (1 - self.beta2) * tf.math.square(avg_flat_grad))
+        flat_step = (- a) * self.m / (tf.math.sqrt(self.v) + self.epsilon)
+        var_steps = tf.split(flat_step, self.var_sizes, axis=0)
+        for var_step, var in zip(var_steps, self.var_list):
+            var.assign_add(tf.reshape(var_step, var.shape))
 
 
 def check_synced(localval, comm=None):
