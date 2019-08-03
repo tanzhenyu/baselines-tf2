@@ -22,17 +22,16 @@ class Runner(AbstractEnvRunner):
         mb_obs, mb_rewards, mb_actions, mb_values, mb_dones = [],[],[],[],[]
         mb_states = self.states
         epinfos = []
-        for n in range(self.nsteps):
+        for _ in range(self.nsteps):
             # Given observations, take action and value (V(s))
             # We already have self.obs because Runner superclass run self.obs[:] = env.reset() on init
             obs = tf.constant(self.obs)
             actions, values, self.states, _ = self.model.step(obs)
-            actions = actions.numpy()
-
+            actions = actions._numpy()
             # Append the experiences
-            mb_obs.append(np.copy(self.obs))
+            mb_obs.append(self.obs.copy())
             mb_actions.append(actions)
-            mb_values.append(values)
+            mb_values.append(values._numpy())
             mb_dones.append(self.dones)
 
             # Take actions in env and look the results
@@ -41,6 +40,7 @@ class Runner(AbstractEnvRunner):
                 maybeepinfo = info.get('episode')
                 if maybeepinfo: epinfos.append(maybeepinfo)
             mb_rewards.append(rewards)
+
         mb_dones.append(self.dones)
 
         # Batch of steps to batch of rollouts
@@ -55,7 +55,7 @@ class Runner(AbstractEnvRunner):
 
         if self.gamma > 0.0:
             # Discount/bootstrap off value fn
-            last_values = self.model.value(tf.constant(self.obs)).numpy().tolist()
+            last_values = self.model.value(tf.constant(self.obs))._numpy().tolist()
             for n, (rewards, dones, value) in enumerate(zip(mb_rewards, mb_dones, last_values)):
                 rewards = rewards.tolist()
                 dones = dones.tolist()
