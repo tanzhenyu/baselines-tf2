@@ -7,7 +7,7 @@ import tensorflow as tf, numpy as np
 
 class RunningMeanStd(tf.Module):
     # https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Parallel_algorithm
-    def __init__(self, epsilon=1e-2, shape=()):
+    def __init__(self, epsilon=1e-2, shape=(), default_clip_range=np.inf):
 
         self._sum = tf.Variable(
             initial_value=np.zeros(shape=shape, dtype=np.float64),
@@ -23,6 +23,7 @@ class RunningMeanStd(tf.Module):
             name="count", trainable=False)
         self.shape = shape
         self.epsilon = epsilon
+        self.default_clip_range = default_clip_range
 
     def update(self, x):
         x = x.astype('float64')
@@ -45,3 +46,11 @@ class RunningMeanStd(tf.Module):
     @property
     def std(self):
         return tf.sqrt(tf.maximum(tf.cast(self._sumsq / self._count, tf.float32) - tf.square(self.mean), self.epsilon))
+
+    def normalize(self, v, clip_range=None):
+        if clip_range is None:
+            clip_range = self.default_clip_range
+        return tf.clip_by_value((v - self.mean) / self.std, -clip_range, clip_range)
+
+    def denormalize(self, v):
+        return self.mean + v * self.std
